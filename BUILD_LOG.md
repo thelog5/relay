@@ -15,3 +15,4 @@ Open questions and blockers live in the "Relay Build — Open Questions & Blocke
 | 5 | 2026-11-07 04:20 | Postgres store: schema, migrator, guarded transitions, event log | R7 | Single-statement transition+event; tests use a throwaway DB per test |
 | 6 | 2026-11-07 04:24 | Redis queue: stream+group, retry zset, dead stream, pub/sub, worker registry | R4 R5 R6 R8 | Atomic Lua moves; lease-extend heartbeat script; XAUTOCLAIM reclaim |
 | 7 | 2026-11-07 04:29 | Worker runtime + retry scheduler | R3 R4 R5 R6 | In-process tests: 300 flaky jobs settle, crash reclaim <3s with fast timers, lease extension, poison-pill guard |
+| 8 | 2026-11-07 04:36 | HTTP API + api/worker binaries + live kill smoke test | R1 R8 R9 R12 | Live test found reclaim starvation -> rewrote worker loop; added heartbeat-based fast rescue (reclaim ~6s after kill) |
