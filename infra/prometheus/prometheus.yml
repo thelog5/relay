@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: relay-api
+    static_configs:
+      - targets: ["api:8080"]
+
+  # Three worker replicas sit behind one compose service name; DNS returns
+  # every replica's IP, and each exposes its own /metrics on 9091.
+  - job_name: relay-worker
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9091
+        refresh_interval: 5s
