@@ -117,15 +117,17 @@ cannot take the fleet down forever.
 
 | Metric | How measured | Result |
 |--------|--------------|--------|
-| Throughput (jobs/sec) | k6, `sleep` jobs at 0 ms, ramp until errors (`loadtest/throughput.js`) | **TODO** on the deployed instance · local: see below |
-| p99 enqueue latency (ms) | k6 on `POST /jobs` (`loadtest/latency.js`) | **TODO** on the deployed instance · local: see below |
+| Throughput (jobs/sec) | k6, `sleep` jobs at 0 ms, ramp until errors (`loadtest/throughput.js`) | **TODO** on the deployed instance · laptop: ≈1,508 jobs/s end to end |
+| p99 enqueue latency (ms) | k6 on `POST /jobs` (`loadtest/latency.js`) | **TODO** on the deployed instance · laptop: 39.9 ms at 1,000 req/s |
 | Time to recover a crashed job (s) | Crash test timestamps in `job_events` | **7.5s** kill → orphans finished (e2e test, PRD timers); ~6–7s reclaim gap in compose |
 | Jobs lost in crash tests | Count in `jobs` vs jobs sent | **0** of 2,000 (kill all 3 workers) and 0 of 300 (SIGKILL all, restart) |
 
 Instance type: **TODO** (fill in after `terraform apply`; numbers depend on hardware).
 
-Local runs (MacBook Air, Docker in a 4-CPU Colima VM, k6 on the same laptop):
-see [`loadtest/RESULTS.md`](loadtest/RESULTS.md).
+Laptop runs (MacBook Air, Docker in a 4-CPU Colima VM, k6 on the same
+laptop) are in [`loadtest/RESULTS.md`](loadtest/RESULTS.md): 223,199 jobs
+accepted and processed with 0 lost; the ramp stopped on connection errors
+between k6 and the VM, not on errors from Relay.
 
 Acceptance runs against `docker compose`:
 
