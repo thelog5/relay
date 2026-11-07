@@ -25,3 +25,4 @@ Open questions and blockers live in the "Relay Build — Open Questions & Blocke
 | 15 | 2026-11-07 05:00 | Fix: enqueue stuck on client disconnect + reconciler | R1 R6 | Found by k6: 24 jobs stuck queued after request timeouts. Enqueue now detached from client ctx; reconciler re-enqueues queued-but-missing jobs (repaired the 24 on restart) |
 | 16 | 2026-11-07 05:02 | README: guarantee, architecture, recovery design, API, config, numbers | PRD README asks | Deployed-instance numbers + GIF left as TODO for Logan |
 | 17 | 2026-11-07 06:45 | Clean full test run + laptop load test results | Numbers table | All 9 packages pass with -race. Laptop: 1,508 jobs/s end to end (223,199 jobs, 0 lost), p99 39.9ms @1k req/s. Deployed numbers still TODO |
+| 18 | 2026-11-07 06:48 | Demo GIF recorded (scripted) + KILLED state on dashboard | Acceptance 6 | docs/demo.gif, 2.8 MB, 19s: kill via dashboard button, 8 jobs rescued avg 6.5s. Re-record anytime: node scripts/record-demo.mjs |
