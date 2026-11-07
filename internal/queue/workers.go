@@ -124,3 +124,63 @@ func (q *Queue) Workers(ctx context.Context, alive, recent time.Duration) ([]Wor
 
 func atoi(s string) int     { n, _ := strconv.Atoi(s); return n }
 func atoi64(s string) int64 { n, _ := strconv.ParseInt(s, 10, 64); return n }
+
+// DeadConsumers returns registered workers whose last heartbeat is older than
+// deadAfter but which still hold pending messages. These are crashed workers
+// whose jobs can be taken over immediately, without waiting for XAUTOCLAIM's
+// idle threshold.
+func (q *Queue) DeadConsumers(ctx context.Context, deadAfter time.Duration) ([]string, error) {
+	pending, err := q.PendingByConsumer(ctx)
+	if err != nil || len(pending) == 0 {
+		return nil, err
+	}
+	cutoff := time.Now().Add(-deadAfter).UnixMilli()
+	var dead []string
+	for consumer, n := range pending {
+		if n == 0 {
+			continue
+		}
+		score, err := q.rdb.ZScore(ctx, q.Keys.Workers, consumer).Result()
+		if err != nil {
+			// Never registered (or long forgotten): leave it to XAUTOCLAIM.
+			continue
+		}
+		if int64(score) < cutoff {
+			dead = append(dead, consumer)
+		}
+	}
+	return dead, nil
+}
+
+// ClaimFrom takes up to count of one consumer's pending messages that have
+// been idle at least minIdle. XCLAIM re-checks idle time atomically, so a
+// message the owner renewed in the meantime is left alone.
+func (q *Queue) ClaimFrom(ctx context.Context, consumer, from string, minIdle time.Duration, count int64) ([]Message, error) {
+	ps, err := q.rdb.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream:   q.Keys.Jobs,
+		Group:    Group,
+		Idle:     minIdle,
+		Start:    "-",
+		End:      "+",
+		Count:    count,
+		Consumer: from,
+	}).Result()
+	if err != nil || len(ps) == 0 {
+		return nil, err
+	}
+	ids := make([]string, len(ps))
+	for i, p := range ps {
+		ids[i] = p.ID
+	}
+	msgs, err := q.rdb.XClaim(ctx, &redis.XClaimArgs{
+		Stream:   q.Keys.Jobs,
+		Group:    Group,
+		Consumer: consumer,
+		MinIdle:  minIdle,
+		Messages: ids,
+	}).Result()
+	if err != nil {
+		return nil, err
+	}
+	return toMessages(msgs), nil
+}

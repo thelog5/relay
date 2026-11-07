@@ -252,3 +252,30 @@ func TestWorkerRegistry(t *testing.T) {
 		t.Fatalf("stale worker should be not alive with zero in-flight: %+v", ws[0])
 	}
 }
+
+func TestDeadConsumerFastClaim(t *testing.T) {
+	q := newQueue(t)
+	ctx := context.Background()
+	q.Enqueue(ctx, "job-1")
+	q.Enqueue(ctx, "job-2")
+	q.Heartbeat(ctx, WorkerInfo{ID: "victim", StartedAt: time.Now()})
+	if msgs, _ := q.Read(ctx, "victim", 10, 50*time.Millisecond); len(msgs) != 2 {
+		t.Fatal("victim should hold two messages")
+	}
+	// Fresh heartbeat: not dead.
+	if dead, _ := q.DeadConsumers(ctx, time.Second); len(dead) != 0 {
+		t.Fatalf("live worker reported dead: %v", dead)
+	}
+	time.Sleep(150 * time.Millisecond)
+	dead, err := q.DeadConsumers(ctx, 100*time.Millisecond)
+	if err != nil || len(dead) != 1 || dead[0] != "victim" {
+		t.Fatalf("dead consumers: %v %v", err, dead)
+	}
+	got, err := q.ClaimFrom(ctx, "rescuer", "victim", 100*time.Millisecond, 10)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("claim from: %v %+v", err, got)
+	}
+	if again, _ := q.ClaimFrom(ctx, "other", "victim", 100*time.Millisecond, 10); len(again) != 0 {
+		t.Fatalf("messages claimed twice: %+v", again)
+	}
+}
