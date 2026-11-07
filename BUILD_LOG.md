@@ -11,3 +11,4 @@ Open questions and blockers live in the "Relay Build — Open Questions & Blocke
 | 1 | 2026-11-07 04:15 | Repo bootstrap: README, .gitignore, build log, Go module | - | Installed Go 1.27, Redis, k6, golangci-lint via Homebrew (no Docker on this machine) |
 | 2 | 2026-11-07 04:15 | Job model + lifecycle state machine | Job lifecycle | queued/running/retry_scheduled/succeeded/dead; running->running = reclaim |
 | 3 | 2026-11-07 04:15 | Retry backoff with jitter | R4 | 1s,2s,4s... cap 60s, +0-20% jitter |
+| 4 | 2026-11-07 04:17 | Job handlers: sleep, flaky, webhook | R2 | Webhook sends Idempotency-Key=job ID; 4xx (except 408/429) = permanent -> dead; blocks 169.254.x |
