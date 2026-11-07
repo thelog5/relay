@@ -12,6 +12,7 @@ func TestLifecycleTransitions(t *testing.T) {
 		{StatusRunning, StatusDead},
 		{StatusRunning, StatusRunning}, // reclaimed from a crashed worker
 		{StatusDead, StatusQueued},     // manual retry from the dashboard
+		{StatusQueued, StatusDead},     // enqueue to Redis failed
 	}
 	for _, tc := range allowed {
 		if !CanTransition(tc.from, tc.to) {

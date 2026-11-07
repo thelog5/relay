@@ -35,8 +35,10 @@ var AllStatuses = []Status{
 // transitions is the allowed state machine. The empty status is the "before
 // the job existed" state used for the very first event.
 var transitions = map[Status][]Status{
-	"":                   {StatusQueued},
-	StatusQueued:         {StatusRunning},
+	"": {StatusQueued},
+	// queued -> dead only happens when the job row was written but the
+	// XADD to Redis failed, so the job is failed loudly instead of stuck.
+	StatusQueued:         {StatusRunning, StatusDead},
 	StatusRunning:        {StatusSucceeded, StatusRetryScheduled, StatusDead, StatusRunning},
 	StatusRetryScheduled: {StatusQueued},
 	// A dead job can be manually retried from the dashboard (R12).
