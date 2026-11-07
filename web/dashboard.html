@@ -1,1 +1,336 @@
-<!doctype html><title>Relay</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay · live</title>
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --panel: #11151a;
+    --panel-2: #161b22;
+    --line: #232a33;
+    --text: #d7dee7;
+    --muted: #7d8794;
+    --queued: #7aa2f7;
+    --running: #e0af68;
+    --retry: #bb9af7;
+    --succeeded: #9ece6a;
+    --dead: #f7768e;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); }
+  button { font: inherit; cursor: pointer; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { margin: 0; font: 600 20px/1 var(--mono); letter-spacing: .5px; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 12px var(--mono); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dead); box-shadow: 0 0 0 3px #f7768e22; }
+  .dot.on { background: var(--succeeded); box-shadow: 0 0 0 3px #9ece6a22; }
+  .spacer { flex: 1; }
+  .rate { font: 600 13px var(--mono); color: var(--muted); }
+  .rate b { color: var(--text); font-size: 18px; }
+
+  .grid { display: grid; gap: 12px; }
+  .counts { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 12px; }
+  .main { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 900px) {
+    .counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .main { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .panel h2 { margin: 0 0 10px; font: 600 11px/1 var(--mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .panel h2 .hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: auto; }
+
+  .count { position: relative; overflow: hidden; }
+  .count .label { font: 600 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .count .n { font: 600 30px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin-top: 6px; }
+  .count::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
+  .count .n { color: var(--c); }
+
+  .spark { width: 100%; height: 70px; display: block; }
+  .depth { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+  .depth div { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
+  .depth .k { font: 11px var(--mono); color: var(--muted); }
+  .depth .v { font: 600 18px var(--mono); font-variant-numeric: tabular-nums; }
+
+  .workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .worker { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 11px; transition: border-color .3s, opacity .3s; }
+  .worker.dead { opacity: .55; border-style: dashed; }
+  .worker.flash { border-color: var(--dead); }
+  .worker.rescue { border-color: var(--succeeded); }
+  .worker .top { display: flex; align-items: center; gap: 8px; }
+  .worker .id { font: 600 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .badge { font: 600 10px var(--mono); padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
+  .badge.alive { background: #9ece6a22; color: var(--succeeded); }
+  .badge.down { background: #f7768e22; color: var(--dead); }
+  .bar { height: 6px; background: #0d1014; border-radius: 3px; margin: 10px 0 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--running); transition: width .3s; }
+  .worker .stats { display: flex; gap: 10px; font: 11px var(--mono); color: var(--muted); flex-wrap: wrap; }
+  .worker .stats b { color: var(--text); font-weight: 600; }
+  .kill { margin-top: 10px; width: 100%; background: transparent; color: var(--dead); border: 1px solid #f7768e55; border-radius: 6px; padding: 6px; font: 600 11px var(--mono); letter-spacing: .8px; }
+  .kill:hover:not(:disabled) { background: #f7768e18; border-color: var(--dead); }
+  .kill:disabled { opacity: .4; cursor: default; }
+
+  .recovery { display: flex; gap: 18px; font: 12px var(--mono); color: var(--muted); margin-top: 10px; flex-wrap: wrap; }
+  .recovery b { color: var(--text); font-size: 15px; }
+
+  .feed { font: 12px/1.5 var(--mono); max-height: 420px; overflow: auto; }
+  .row { display: grid; grid-template-columns: 74px 70px 64px minmax(0, 1fr); gap: 8px; padding: 3px 0; border-bottom: 1px solid #1a2028; white-space: nowrap; }
+  .row.new { animation: fade 1.2s ease-out; }
+  @keyframes fade { from { background: #e0af6822; } to { background: transparent; } }
+  .row .t, .row .jid { color: var(--muted); }
+  .row .tr { overflow: hidden; text-overflow: ellipsis; }
+  .row .err { color: var(--dead); }
+  .row .rescue { color: var(--succeeded); }
+  .st { font-weight: 600; }
+  .st.queued { color: var(--queued); } .st.running { color: var(--running); } .st.retry_scheduled { color: var(--retry); }
+  .st.succeeded { color: var(--succeeded); } .st.dead { color: var(--dead); }
+  .muted { color: var(--muted); }
+
+  .dl { font: 12px var(--mono); max-height: 330px; overflow: auto; }
+  .dl .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid #1a2028; align-items: center; }
+  .dl .err { color: var(--dead); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dl button, .enq button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; font: 11px var(--mono); }
+  .dl button:hover, .enq button:hover { border-color: var(--muted); }
+  .dl .actions { display: flex; gap: 6px; }
+
+  .enq { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .enq .note { font: 11px var(--mono); color: var(--muted); width: 100%; }
+  .side { display: grid; gap: 12px; }
+  .stack { display: grid; gap: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>relay <span>/ live</span></h1>
+    <span class="conn"><span class="dot" id="dot"></span><span id="connText">connecting</span></span>
+    <span class="spacer"></span>
+    <span class="rate"><b id="rate">0</b> jobs/s done</span>
+    <span class="rate"><b id="total">0</b> total</span>
+  </header>
+
+  <section class="grid counts" id="counts"></section>
+
+  <section class="grid main">
+    <div class="stack">
+      <div class="panel">
+        <h2>Workers <span class="hint">kill one mid-job and watch its jobs move</span></h2>
+        <div class="workers" id="workers"><div class="muted">waiting for heartbeats…</div></div>
+        <div class="recovery" id="recovery"></div>
+      </div>
+      <div class="panel">
+        <h2>Throughput <span class="hint">completed per second, last 2 min</span></h2>
+        <svg class="spark" id="spark" viewBox="0 0 600 70" preserveAspectRatio="none"></svg>
+        <div class="depth" id="depth"></div>
+      </div>
+      <div class="panel">
+        <h2>Send jobs</h2>
+        <div class="enq">
+          <button data-burst="sleep" data-n="60">60 × sleep 3s</button>
+          <button data-burst="fast" data-n="500">500 × sleep 0ms</button>
+          <button data-burst="flaky" data-n="300">300 × flaky 30%</button>
+          <button data-burst="doomed" data-n="5">5 × flaky 100%</button>
+          <span class="note" id="enqNote">bursts go through POST /jobs like any client</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="side">
+      <div class="panel">
+        <h2>Live feed <span class="hint" id="dropped"></span></h2>
+        <div class="feed" id="feed"></div>
+      </div>
+      <div class="panel">
+        <h2>Dead letters <span class="hint" id="dlCount"></span></h2>
+        <div class="dl" id="dl"><div class="muted">none</div></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const STATUSES = [
+    ["queued", "Queued"], ["running", "Running"], ["retry_scheduled", "Retry wait"],
+    ["succeeded", "Succeeded"], ["dead", "Dead"],
+  ];
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+  const short = (id) => (id || "").slice(0, 8);
+  const time = (t) => new Date(t).toLocaleTimeString("en-US", { hour12: false });
+
+  $("counts").innerHTML = STATUSES.map(([k, label]) =>
+    `<div class="panel count" style="--c: var(--${k === "retry_scheduled" ? "retry" : k})">
+       <div class="label">${label}</div><div class="n" id="c-${k}">0</div></div>`).join("");
+
+  // ---- throughput sparkline -------------------------------------------
+  const series = [];
+  let prev = null;
+  function pushRate(st) {
+    const done = (st.statuses.succeeded || 0) + (st.statuses.dead || 0);
+    const at = new Date(st.at).getTime();
+    if (prev && at > prev.at) {
+      const r = Math.max(0, (done - prev.done) / ((at - prev.at) / 1000));
+      series.push(r);
+      if (series.length > 120) series.shift();
+      $("rate").textContent = fmt(Math.round(r));
+    }
+    prev = { done, at };
+    drawSpark();
+  }
+  function drawSpark() {
+    const svg = $("spark"), w = 600, h = 70, n = series.length;
+    if (n < 2) { svg.innerHTML = ""; return; }
+    const max = Math.max(1, ...series);
+    const x = (i) => (i / 119) * w + (w - ((n - 1) / 119) * w);
+    const y = (v) => h - 4 - (v / max) * (h - 12);
+    let d = `M${x(0)},${y(series[0])}`;
+    for (let i = 1; i < n; i++) d += ` L${x(i)},${y(series[i])}`;
+    svg.innerHTML =
+      `<path d="${d} L${x(n - 1)},${h} L${x(0)},${h} Z" fill="#9ece6a18"/>` +
+      `<path d="${d}" fill="none" stroke="#9ece6a" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` +
+      `<text x="4" y="12" fill="#7d8794" font-size="10" font-family="monospace">peak ${fmt(Math.round(max))}/s</text>`;
+  }
+
+  // ---- workers --------------------------------------------------------
+  const lastReclaimed = {};
+  const killedAt = {};
+  function renderWorkers(ws) {
+    if (!ws.length) { $("workers").innerHTML = `<div class="muted">no workers yet</div>`; return; }
+    $("workers").innerHTML = ws.map((w) => {
+      const pct = w.concurrency ? Math.min(100, (w.in_flight / w.concurrency) * 100) : 0;
+      const rescued = lastReclaimed[w.id] !== undefined && w.reclaimed > lastReclaimed[w.id];
+      lastReclaimed[w.id] = w.reclaimed;
+      const cls = ["worker", w.alive ? "" : "dead", killedAt[w.id] && w.alive ? "flash" : "", rescued ? "rescue" : ""].join(" ");
+      return `<div class="${cls}" id="w-${esc(w.id)}">
+        <div class="top"><span class="id" title="${esc(w.id)}">${esc(w.id)}</span>
+          <span class="badge ${w.alive ? "alive" : "down"}">${w.alive ? "ALIVE" : "DEAD"}</span></div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="stats">
+          <span><b>${w.in_flight}</b>/${w.concurrency} running</span>
+          <span><b>${fmt(w.succeeded)}</b> ok</span>
+          <span><b>${fmt(w.failed)}</b> failed</span>
+          <span><b>${fmt(w.reclaimed)}</b> rescued</span>
+        </div>
+        <button class="kill" data-kill="${esc(w.id)}" ${w.alive ? "" : "disabled"}>${w.alive ? "KILL  ·  os.Exit(1)" : "EXITED"}</button>
+      </div>`;
+    }).join("");
+  }
+
+  $("workers").addEventListener("click", async (e) => {
+    const id = e.target?.dataset?.kill;
+    if (!id) return;
+    e.target.disabled = true;
+    e.target.textContent = "KILLING…";
+    killedAt[id] = Date.now();
+    let token = "";
+    try { token = sessionStorage.getItem("relayKillToken") || ""; } catch {}
+    let res = await fetch(`/workers/${encodeURIComponent(id)}/kill${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST" });
+    if (res.status === 403) {
+      token = prompt("Kill token for this demo:") || "";
+      try { sessionStorage.setItem("relayKillToken", token); } catch {}
+      res = await fetch(`/workers/${encodeURIComponent(id)}/kill?token=${encodeURIComponent(token)}`, { method: "POST" });
+    }
+    if (!res.ok) { e.target.disabled = false; e.target.textContent = "KILL FAILED"; }
+  });
+
+  // ---- stats ----------------------------------------------------------
+  let lastDead = -1;
+  function onStats(st) {
+    for (const [k] of STATUSES) $("c-" + k).textContent = fmt(st.statuses[k]);
+    $("total").textContent = fmt(st.total);
+    const q = st.queue || {};
+    $("depth").innerHTML = [["backlog", "stream backlog"], ["pending", "held by workers"], ["retry", "retry set"], ["dead", "dead-letter"]]
+      .map(([k, label]) => `<div><div class="k">${label}</div><div class="v">${fmt(q[k])}</div></div>`).join("");
+    renderWorkers(st.workers || []);
+    const r = st.recovery || {};
+    $("recovery").innerHTML = r.reclaimed
+      ? `<span>jobs rescued from crashed workers <b>${fmt(r.reclaimed)}</b></span>
+         <span>avg gap <b>${r.avg_reclaim_secs.toFixed(1)}s</b></span>
+         <span>worst gap <b>${r.max_reclaim_secs.toFixed(1)}s</b></span>`
+      : `<span>no crashes yet: kill a worker above</span>`;
+    pushRate(st);
+    if (st.statuses.dead !== lastDead) { lastDead = st.statuses.dead; loadDead(); }
+  }
+
+  // ---- feed -----------------------------------------------------------
+  const feed = $("feed");
+  let droppedTotal = 0;
+  function onJobs(batch) {
+    if (batch.dropped) { droppedTotal += batch.dropped; $("dropped").textContent = `${fmt(droppedTotal)} not shown (rate-limited)`; }
+    const html = batch.events.map((e) => {
+      const tr = `${e.from ? `<span class="st ${esc(e.from)}">${esc(e.from)}</span> → ` : ""}<span class="st ${esc(e.to)}">${esc(e.to)}</span>`;
+      const who = e.worker_id ? ` <span class="muted">@${esc(e.worker_id)}</span>` : "";
+      const reclaim = e.from === "running" && e.to === "running";
+      const note = reclaim ? `rescued${e.error ? " · " + e.error.replace(/^reclaimed /, "") : ""}` : e.error;
+      const err = note ? ` <span class="${reclaim ? "rescue" : "err"}">${esc(note)}</span>` : "";
+      return `<div class="row new"><span class="t">${time(e.at)}</span><span class="jid">${short(e.job_id)}</span><span>${esc(e.type || "")}</span><span class="tr">${tr}${who}${err}</span></div>`;
+    }).reverse().join("");
+    feed.insertAdjacentHTML("afterbegin", html);
+    while (feed.children.length > 80) feed.lastElementChild.remove();
+  }
+
+  // ---- dead letters (R12) ---------------------------------------------
+  async function loadDead() {
+    try {
+      const res = await fetch("/jobs?status=dead&limit=15");
+      const { jobs } = await res.json();
+      $("dlCount").textContent = lastDead > 0 ? `${fmt(lastDead)} total` : "";
+      $("dl").innerHTML = jobs.length ? jobs.map((j) => `
+        <div class="item"><div><div>${short(j.id)} <span class="muted">${esc(j.type)} · ${j.attempts}/${j.max_attempts} attempts</span></div>
+          <div class="err" title="${esc(j.last_error)}">${esc(j.last_error)}</div></div>
+          <div class="actions"><button data-retry="${j.id}">retry</button><button data-del="${j.id}">delete</button></div></div>`).join("")
+        : `<div class="muted">none</div>`;
+    } catch {}
+  }
+  $("dl").addEventListener("click", async (e) => {
+    const { retry, del } = e.target.dataset || {};
+    if (retry) await fetch(`/jobs/${retry}/retry`, { method: "POST" });
+    if (del) await fetch(`/jobs/${del}`, { method: "DELETE" });
+    if (retry || del) loadDead();
+  });
+
+  // ---- bursts ---------------------------------------------------------
+  const BURSTS = {
+    sleep: { type: "sleep", payload: { ms: 3000 } },
+    fast: { type: "sleep", payload: { ms: 0 } },
+    flaky: { type: "flaky", payload: { fail_rate: 0.3, ms: 50 } },
+    doomed: { type: "flaky", payload: { fail_rate: 1 }, max_attempts: 3 },
+  };
+  document.querySelector(".enq").addEventListener("click", async (e) => {
+    const kind = e.target.dataset?.burst;
+    if (!kind) return;
+    const n = Number(e.target.dataset.n);
+    const body = JSON.stringify(BURSTS[kind]);
+    $("enqNote").textContent = `sending ${n}…`;
+    const t0 = performance.now();
+    let ok = 0;
+    for (let i = 0; i < n; i += 25) {
+      const batch = Array.from({ length: Math.min(25, n - i) }, () =>
+        fetch("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => r.ok && ok++));
+      await Promise.all(batch);
+    }
+    $("enqNote").textContent = `${ok}/${n} accepted (202) in ${Math.round(performance.now() - t0)} ms`;
+  });
+
+  // ---- SSE ------------------------------------------------------------
+  function connect() {
+    const es = new EventSource("/events");
+    es.addEventListener("open", () => { $("dot").classList.add("on"); $("connText").textContent = "live"; });
+    es.addEventListener("error", () => { $("dot").classList.remove("on"); $("connText").textContent = "reconnecting"; });
+    es.addEventListener("stats", (m) => onStats(JSON.parse(m.data)));
+    es.addEventListener("jobs", (m) => onJobs(JSON.parse(m.data)));
+  }
+  connect();
+})();
+</script>
+</body>
+</html>
