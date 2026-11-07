@@ -341,12 +341,14 @@ func (w *Worker) reclaimLoop(ctx, jobsCtx context.Context) {
 }
 
 func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context) {
-	n := w.tryAcquire(w.cfg.Concurrency)
-	if n == 0 {
-		return // busy; another worker with free slots will take them
+	// Claim only what we have capacity to run. Slot accounting uses jobs
+	// actually executing, not slots: the fetch loop holds idle slots while
+	// it blocks in XREADGROUP, and reclaim must not be starved by that.
+	free := w.cfg.Concurrency - int(w.inFlight.Load())
+	if free <= 0 {
+		return // busy; a worker with spare capacity will take them
 	}
-	msgs, err := w.q.AutoClaim(ctx, w.cfg.ID, w.cfg.ReclaimIdle, int64(n))
-	w.release(n - len(msgs))
+	msgs, err := w.q.AutoClaim(ctx, w.cfg.ID, w.cfg.ReclaimIdle, int64(free))
 	if err != nil {
 		if ctx.Err() == nil {
 			w.log.Warn("autoclaim failed", "err", err)
@@ -354,6 +356,11 @@ func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context) {
 		return
 	}
 	for _, m := range msgs {
+		// Blocks at most one ReadBlock: Go hands a freed slot to the
+		// longest-waiting sender, so the fetch loop cannot jump the line.
+		if w.acquire(ctx, 1) == 0 {
+			return // shutting down; the claimed messages stay pending
+		}
 		w.log.Info("reclaimed job from idle consumer", "job_id", m.JobID, "msg_id", m.ID)
 		w.dispatch(jobsCtx, m, true)
 	}
