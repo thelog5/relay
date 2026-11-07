@@ -9,6 +9,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -87,7 +88,7 @@ func (c *client) do(method, path string, body, out any) (int, error) {
 		b, _ := json.Marshal(body)
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, strings.TrimRight(c.base, "/")+path, rd)
+	req, err := http.NewRequestWithContext(context.Background(), method, strings.TrimRight(c.base, "/")+path, rd)
 	if err != nil {
 		return 0, err
 	}
@@ -270,7 +271,7 @@ func cmdEnqueue(args []string) error {
 	payload := fs.String("payload", `{"ms":250}`, "JSON payload")
 	maxAttempts := fs.Int("max-attempts", 0, "max attempts (0 = server default)")
 	conc := fs.Int("c", 32, "concurrent HTTP clients")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: never returns an error
 	ids, took, err := c.enqueueMany(jobReq{Type: *typ, Payload: json.RawMessage(*payload), MaxAttempts: *maxAttempts}, *n, *conc)
 	fmt.Printf("enqueued %d %s jobs in %s (%.0f/s)\n", countNonEmpty(ids), *typ, took.Round(time.Millisecond), float64(*n)/took.Seconds())
 	return err
@@ -283,7 +284,7 @@ func cmdSoak(args []string) error {
 	rate := fs.Float64("fail-rate", 0.3, "per-attempt failure probability")
 	conc := fs.Int("c", 64, "concurrent HTTP clients")
 	timeout := fs.Duration("timeout", 10*time.Minute, "how long to wait for every job to settle")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: never returns an error
 
 	before, err := c.stats()
 	if err != nil {
@@ -321,7 +322,7 @@ func cmdCrash(args []string) error {
 	n := fs.Int("n", 60, "sleep jobs to enqueue")
 	ms := fs.Int("ms", 2000, "duration of each sleep job")
 	limit := fs.Duration("limit", 15*time.Second, "max time from kill to the last orphaned job finishing")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: never returns an error
 
 	ids, _, err := c.enqueueMany(jobReq{Type: "sleep", Payload: json.RawMessage(fmt.Sprintf(`{"ms":%d}`, *ms))}, *n, 16)
 	if err != nil {
@@ -419,7 +420,7 @@ func cmdChaos(args []string) error {
 	n := fs.Int("n", 2000, "sleep jobs to enqueue")
 	ms := fs.Int("ms", 200, "duration of each sleep job")
 	timeout := fs.Duration("timeout", 3*time.Minute, "how long to wait for every job to finish after the kill")
-	fs.Parse(args)
+	_ = fs.Parse(args) // ExitOnError: never returns an error
 
 	before, err := c.stats()
 	if err != nil {
@@ -500,4 +501,3 @@ func pow(x float64, n int) float64 {
 	}
 	return r
 }
-

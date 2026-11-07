@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +24,13 @@ import (
 
 func main() {
 	log := logging.Setup("worker")
+	if err := run(log); err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -29,23 +38,20 @@ func main() {
 
 	st, err := store.Open(ctx, config.String("DATABASE_URL", "postgres://relay:relay@localhost:5432/relay?sslmode=disable"), int32(config.Int("PG_MAX_CONNS", concurrency+4)))
 	if err != nil {
-		log.Error("postgres", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("postgres: %w", err)
 	}
 	defer st.Close()
 	// Migrations take an advisory lock, so racing the api here is safe and
 	// means a worker never starts against a missing schema.
 	if err := st.Migrate(ctx); err != nil {
-		log.Error("migrate", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("migrate: %w", err)
 	}
 
 	// One blocking reader, one reclaimer, heartbeats, lease renewals and
 	// pub/sub, plus a connection per running job.
 	rdb, err := queue.Connect(ctx, config.String("REDIS_URL", "redis://localhost:6379/0"), concurrency*2+10)
 	if err != nil {
-		log.Error("redis", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("redis: %w", err)
 	}
 	defer rdb.Close()
 	q := queue.New(rdb, config.String("RELAY_KEY_PREFIX", "relay"))
@@ -79,8 +85,7 @@ func main() {
 	}()
 
 	if err := w.Run(ctx); err != nil {
-		log.Error("worker stopped", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("worker stopped: %w", err)
 	}
-	_ = msrv.Close()
+	return msrv.Close()
 }

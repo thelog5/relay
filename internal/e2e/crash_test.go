@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -49,7 +50,7 @@ func buildWorker(t *testing.T) string {
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			buildErr = fmt.Errorf("build worker: %v\n%s", err, out)
+			buildErr = fmt.Errorf("build worker: %w\n%s", err, out)
 		}
 	})
 	if buildErr != nil {
@@ -247,7 +248,8 @@ func TestKillWorkerMidJobJobsFinishElsewhereWithin15s(t *testing.T) {
 	c.mu.Unlock()
 	select {
 	case err := <-exit:
-		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
 			t.Fatalf("worker did not exit with status 1: %v", err)
 		}
 	case <-time.After(5 * time.Second):

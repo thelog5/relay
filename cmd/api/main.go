@@ -4,6 +4,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,30 +23,33 @@ import (
 
 func main() {
 	log := logging.Setup("api")
+	if err := run(log); err != nil {
+		log.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	st, err := store.Open(ctx, config.String("DATABASE_URL", "postgres://relay:relay@localhost:5432/relay?sslmode=disable"), int32(config.Int("PG_MAX_CONNS", 20)))
 	if err != nil {
-		log.Error("postgres", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("postgres: %w", err)
 	}
 	defer st.Close()
 	if err := st.Migrate(ctx); err != nil {
-		log.Error("migrate", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("migrate: %w", err)
 	}
 
 	rdb, err := queue.Connect(ctx, config.String("REDIS_URL", "redis://localhost:6379/0"), config.Int("REDIS_POOL_SIZE", 50))
 	if err != nil {
-		log.Error("redis", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("redis: %w", err)
 	}
 	defer rdb.Close()
 	q := queue.New(rdb, config.String("RELAY_KEY_PREFIX", "relay"))
 	if err := q.EnsureGroup(ctx); err != nil {
-		log.Error("consumer group", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("consumer group: %w", err)
 	}
 
 	srv := api.New(api.Config{
@@ -79,5 +84,5 @@ func main() {
 	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_ = httpSrv.Shutdown(shutdownCtx)
+	return httpSrv.Shutdown(shutdownCtx)
 }
