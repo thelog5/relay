@@ -8,8 +8,11 @@ exponential backoff; dead-letter what keeps failing. Kill a worker in the
 middle of a job from the dashboard and watch a live worker pick up its jobs a
 few seconds later.
 
-<!-- TODO(logan): record docs/demo.gif — jobs flowing, worker killed, jobs recovered -->
 ![Relay dashboard: a worker is killed mid-job and its jobs are rescued](docs/demo.gif)
+
+<sub>Recorded with `node scripts/record-demo.mjs` against `docker compose up`:
+jobs flow, a worker is killed from the dashboard mid-job, the survivors rescue
+its 8 jobs about 6.5s later, and Docker restarts it under a new name.</sub>
 
 ```
 docker compose up --build
