@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Env / secrets
+.env
+*.tfvars
+!*.tfvars.example
+infra/**/.terraform/
+infra/**/terraform.tfstate*
+infra/**/.terraform.lock.hcl
+
+# Load test output
+loadtest/results/*.json
+!loadtest/results/.gitkeep
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
