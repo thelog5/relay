@@ -277,38 +277,45 @@ func (w *Worker) loop(ctx, jobsCtx context.Context) {
 	backoff := 100 * time.Millisecond
 
 	for ctx.Err() == nil {
-		if fastPath && !time.Now().Before(nextDeadCheck) {
-			w.rescueDeadWorkers(ctx, jobsCtx)
-			nextDeadCheck = time.Now().Add(w.cfg.DeadCheckInterval)
+		// Orphaned jobs (held by crashed workers) are older than anything new
+		// on the stream, so they get capacity first. A rescue or reclaim that
+		// filled every free slot stays due: there may be more orphans, and
+		// they keep priority over new reads until drained.
+		now := time.Now()
+		free := w.cfg.Concurrency - int(w.running.Load())
+		if fastPath && free > 0 && !now.Before(nextDeadCheck) {
+			if n := w.rescueDeadWorkers(ctx, jobsCtx, free); n < free {
+				nextDeadCheck = now.Add(w.cfg.DeadCheckInterval)
+			}
+			free = w.cfg.Concurrency - int(w.running.Load())
 		}
-		if !time.Now().Before(nextReclaim) {
-			w.reclaimOnce(ctx, jobsCtx)
-			nextReclaim = time.Now().Add(w.cfg.ReclaimInterval)
+		if free > 0 && !now.Before(nextReclaim) {
+			if n := w.reclaimOnce(ctx, jobsCtx, free); n < free {
+				nextReclaim = now.Add(w.cfg.ReclaimInterval)
+			}
 			if reclaims++; reclaims%12 == 0 {
 				if n, err := w.q.PruneConsumers(ctx, 5*time.Minute); err == nil && n > 0 {
 					w.log.Info("pruned idle consumers", "count", n)
 				}
 			}
+			free = w.cfg.Concurrency - int(w.running.Load())
 		}
 
-		untilReclaim := time.Until(nextReclaim)
-		if fastPath {
-			untilReclaim = min(untilReclaim, time.Until(nextDeadCheck))
-		}
-		free := w.cfg.Concurrency - int(w.running.Load())
 		if free <= 0 {
-			// Full: wait for a job to finish or for the next reclaim tick.
-			t := time.NewTimer(max(untilReclaim, time.Millisecond))
+			// Full. Wait for a job to finish; any overdue rescue or reclaim
+			// then runs before the next read.
 			select {
 			case <-ctx.Done():
 			case <-w.freed:
-			case <-t.C:
 			}
-			t.Stop()
 			continue
 		}
 
-		block := min(max(untilReclaim, 10*time.Millisecond), w.cfg.ReadBlock)
+		untilNext := time.Until(nextReclaim)
+		if fastPath {
+			untilNext = min(untilNext, time.Until(nextDeadCheck))
+		}
+		block := min(max(untilNext, 10*time.Millisecond), w.cfg.ReadBlock)
 		msgs, err := w.q.Read(ctx, w.cfg.ID, int64(free), block)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -326,43 +333,39 @@ func (w *Worker) loop(ctx, jobsCtx context.Context) {
 	}
 }
 
-func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context) {
-	free := w.cfg.Concurrency - int(w.running.Load())
-	if free <= 0 {
-		return // busy; a worker with spare capacity will take them
-	}
+// reclaimOnce runs XAUTOCLAIM for up to free messages and returns how many
+// it took.
+func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context, free int) int {
 	msgs, err := w.q.AutoClaim(ctx, w.cfg.ID, w.cfg.ReclaimIdle, int64(free))
 	if err != nil {
 		if ctx.Err() == nil {
 			w.log.Warn("autoclaim failed", "err", err)
 		}
-		return
+		return 0
 	}
 	for _, m := range msgs {
 		w.log.Info("reclaimed job from idle consumer", "job_id", m.JobID, "msg_id", m.ID)
 		w.dispatch(jobsCtx, m, true)
 	}
+	return len(msgs)
 }
 
 // rescueDeadWorkers is the fast reclaim path: any registered worker whose
 // heartbeat is older than DeadAfter is presumed crashed, and its pending
 // messages are claimed as soon as they have been idle longer than one lease
 // renewal (so a live-but-slow worker's renewed jobs are never taken).
-func (w *Worker) rescueDeadWorkers(ctx, jobsCtx context.Context) {
-	free := w.cfg.Concurrency - int(w.running.Load())
-	if free <= 0 {
-		return
-	}
+func (w *Worker) rescueDeadWorkers(ctx, jobsCtx context.Context, free int) int {
 	dead, err := w.q.DeadConsumers(ctx, w.cfg.DeadAfter)
 	if err != nil || len(dead) == 0 {
-		return
+		return 0
 	}
 	minIdle := 2 * w.cfg.LeaseInterval
+	taken := 0
 	for _, victim := range dead {
-		if victim == w.cfg.ID || free <= 0 {
+		if victim == w.cfg.ID || taken >= free {
 			continue
 		}
-		msgs, err := w.q.ClaimFrom(ctx, w.cfg.ID, victim, minIdle, int64(free))
+		msgs, err := w.q.ClaimFrom(ctx, w.cfg.ID, victim, minIdle, int64(free-taken))
 		if err != nil {
 			w.log.Warn("claim from dead worker failed", "victim", victim, "err", err)
 			continue
@@ -370,9 +373,10 @@ func (w *Worker) rescueDeadWorkers(ctx, jobsCtx context.Context) {
 		for _, m := range msgs {
 			w.log.Info("rescued job from dead worker", "victim", victim, "job_id", m.JobID)
 			w.dispatch(jobsCtx, m, true)
-			free--
+			taken++
 		}
 	}
+	return taken
 }
 
 // dispatch runs one message on its own goroutine and counts it against the

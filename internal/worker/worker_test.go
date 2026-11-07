@@ -429,3 +429,47 @@ func TestFastRescueFromWorkerWithStaleHeartbeat(t *testing.T) {
 		}
 	}
 }
+
+// Orphaned jobs must not wait behind a backlog of new work.
+func TestRescuedJobsJumpTheBacklog(t *testing.T) {
+	h := newHarness(t)
+	var orphans []string
+	for i := 0; i < 4; i++ {
+		orphans = append(orphans, h.enqueue("sleep", `{"ms":10}`, 5))
+	}
+	h.q.Heartbeat(h.ctx, queue.WorkerInfo{ID: "victim", StartedAt: time.Now()})
+	if msgs, _ := h.q.Read(h.ctx, "victim", 10, 100*time.Millisecond); len(msgs) != 4 {
+		t.Fatal("victim should hold the orphans")
+	}
+	for _, id := range orphans {
+		h.store.Transition(h.ctx, id, store.TransitionOpts{From: []jobs.Status{jobs.StatusQueued}, To: jobs.StatusRunning, WorkerID: "victim", IncAttempts: true})
+	}
+	// 4 slots x 100ms jobs: the backlog alone takes ~2.5s to drain.
+	for i := 0; i < 100; i++ {
+		h.enqueue("sleep", `{"ms":100}`, 5)
+	}
+	start := time.Now()
+	cfg := fastConfig("rescuer")
+	cfg.Concurrency = 4
+	cfg.ReclaimIdle = time.Minute
+	cfg.ReclaimInterval = time.Minute
+	h.startWorker(cfg)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for _, id := range orphans {
+		for {
+			j, _ := h.store.GetJob(h.ctx, id)
+			if j.Status == jobs.StatusSucceeded {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("orphan %s never finished", id)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if took := time.Since(start); took > 1500*time.Millisecond {
+		t.Fatalf("orphans waited behind the backlog: %v", took)
+	}
+	h.waitTerminal(104, 20*time.Second)
+}
