@@ -1,0 +1,6 @@
+.git
+bin
+infra/**/.terraform
+loadtest/results
+*.md
+!README.md
