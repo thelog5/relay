@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,7 +63,12 @@ func (v validationError) Error() string { return v.msg }
 // Postgres first, then Redis: if the XADD fails the row is marked dead with
 // the reason, so a job is never silently stuck in queued.
 func (s *Server) Enqueue(r *http.Request, req CreateJobRequest) (*jobs.Job, error) {
-	ctx := r.Context()
+	// Once the row is written, the XADD (or the dead-marking fallback) must
+	// happen even if the client hangs up. A load test caught this: request
+	// timeouts cancelled the context between the two writes and left jobs
+	// stuck in queued with nothing on the stream.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+	defer cancel()
 	h, err := s.reg.Lookup(req.Type)
 	if err != nil {
 		return nil, validationError{err.Error()}

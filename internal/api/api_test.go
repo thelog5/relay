@@ -301,3 +301,21 @@ func TestDashboardAndHealth(t *testing.T) {
 		t.Fatal("metrics missing relay gauges")
 	}
 }
+
+// Regression: a k6 run with request timeouts left jobs in queued with nothing
+// on the stream, because the client's cancellation aborted the XADD after
+// the Postgres insert. Enqueue must finish once it has started.
+func TestEnqueueSurvivesClientCancellation(t *testing.T) {
+	e := newEnv(t, Config{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest("POST", "/jobs", nil).WithContext(ctx)
+	j, err := e.api.Enqueue(req, CreateJobRequest{Type: "sleep", Payload: json.RawMessage(`{"ms":1}`)})
+	if err != nil {
+		t.Fatalf("enqueue with cancelled client context: %v", err)
+	}
+	d, _ := e.q.Depth(context.Background())
+	if d.Backlog != 1 {
+		t.Fatalf("job %s not on the stream: %+v", j.ID, d)
+	}
+}
