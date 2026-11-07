@@ -171,6 +171,19 @@ func TestReclaimRecordsRunningToRunning(t *testing.T) {
 	if prev != jobs.StatusRunning {
 		t.Fatalf("prev status = %s", prev)
 	}
+	evs, _ := s.JobEvents(ctx, j.ID)
+	if last := evs[len(evs)-1]; last.Error != "reclaimed from dead-worker" || last.WorkerID != "live-worker" {
+		t.Fatalf("reclaim event not annotated: %+v", last)
+	}
+	// The slow original worker is fenced off: it can no longer finish the job.
+	_, _, err = s.Transition(ctx, j.ID, TransitionOpts{From: []jobs.Status{jobs.StatusRunning}, To: jobs.StatusSucceeded, WorkerID: "dead-worker", OwnedBy: "dead-worker"})
+	var ce *ConflictError
+	if !errors.As(err, &ce) {
+		t.Fatalf("expected fenced conflict, got %v", err)
+	}
+	if _, _, err := s.Transition(ctx, j.ID, TransitionOpts{From: []jobs.Status{jobs.StatusRunning}, To: jobs.StatusSucceeded, WorkerID: "live-worker", OwnedBy: "live-worker"}); err != nil {
+		t.Fatalf("owner should be able to finish: %v", err)
+	}
 	rs, err := s.Recovery(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -240,6 +253,12 @@ func TestListAndDelete(t *testing.T) {
 	if err := s.DeleteJob(ctx, queued.ID); !errors.As(err, &ce) {
 		t.Fatalf("deleting a queued job should conflict, got %v", err)
 	}
+	revived, _, err := s.Transition(ctx, j.ID, TransitionOpts{From: []jobs.Status{jobs.StatusDead}, To: jobs.StatusQueued, ResetAttempts: true, WorkerID: "dashboard"})
+	if err != nil || revived.Attempts != 0 {
+		t.Fatalf("manual retry: %v %+v", err, revived)
+	}
+	s.Transition(ctx, j.ID, TransitionOpts{From: []jobs.Status{jobs.StatusQueued}, To: jobs.StatusRunning, IncAttempts: true})
+	s.Transition(ctx, j.ID, TransitionOpts{From: []jobs.Status{jobs.StatusRunning}, To: jobs.StatusDead, Error: "gave up again"})
 	if err := s.DeleteJob(ctx, j.ID); err != nil {
 		t.Fatal(err)
 	}

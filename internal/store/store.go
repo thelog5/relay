@@ -217,6 +217,12 @@ type TransitionOpts struct {
 	Error string
 	// IncAttempts adds one to attempts (used when a worker starts a run).
 	IncAttempts bool
+	// ResetAttempts sets attempts back to zero (manual retry of a dead job).
+	ResetAttempts bool
+	// OwnedBy, if set, additionally requires the job's current worker_id to
+	// match. Workers use it as a fence: once another worker reclaims a job,
+	// the original (slow, not dead) worker can no longer finish it.
+	OwnedBy string
 }
 
 // Transition atomically moves a job between statuses and appends the
@@ -230,26 +236,35 @@ func (s *Store) Transition(ctx context.Context, id string, o TransitionOpts) (*j
 	if o.IncAttempts {
 		inc = 1
 	}
+	reset := o.ResetAttempts
 	var prev string
 	row := s.pool.QueryRow(ctx, `
 		WITH prev AS (
-			SELECT id, status FROM jobs WHERE id = $1::uuid FOR UPDATE
+			SELECT id, status, worker_id FROM jobs WHERE id = $1::uuid FOR UPDATE
 		), upd AS (
 			UPDATE jobs j SET
 				status     = $2,
-				attempts   = j.attempts + $3,
+				attempts   = CASE WHEN $7 THEN 0 ELSE j.attempts + $3 END,
 				worker_id  = COALESCE(NULLIF($4, ''), j.worker_id),
 				last_error = COALESCE(NULLIF($5, ''), j.last_error),
 				updated_at = clock_timestamp()
 			FROM prev
-			WHERE j.id = prev.id AND prev.status = ANY($6::text[])
-			RETURNING j.*, prev.status AS prev_status
+			WHERE j.id = prev.id
+			  AND prev.status = ANY($6::text[])
+			  AND ($8 = '' OR prev.worker_id = $8)
+			RETURNING j.*, prev.status AS prev_status, prev.worker_id AS prev_worker
 		), ev AS (
+			-- running -> running is a reclaim: note who the job was taken from.
 			INSERT INTO job_events (job_id, from_status, to_status, worker_id, error, at)
-			SELECT id, prev_status, status, NULLIF($4, ''), NULLIF($5, ''), updated_at FROM upd
+			SELECT id, prev_status, status, NULLIF($4, ''),
+			       CASE WHEN prev_status = 'running' AND status = 'running'
+			            THEN 'reclaimed from ' || COALESCE(prev_worker, 'unknown worker')
+			            ELSE NULLIF($5, '') END,
+			       updated_at
+			FROM upd
 		)
 		SELECT `+jobColumns+`, prev_status FROM upd`,
-		id, string(o.To), inc, o.WorkerID, o.Error, from)
+		id, string(o.To), inc, o.WorkerID, o.Error, from, reset, o.OwnedBy)
 
 	var j jobs.Job
 	var status string
