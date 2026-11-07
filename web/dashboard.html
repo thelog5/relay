@@ -209,10 +209,17 @@
       const pct = w.concurrency ? Math.min(100, (w.in_flight / w.concurrency) * 100) : 0;
       const rescued = lastReclaimed[w.id] !== undefined && w.reclaimed > lastReclaimed[w.id];
       lastReclaimed[w.id] = w.reclaimed;
-      const cls = ["worker", w.alive ? "" : "dead", killedAt[w.id] && w.alive ? "flash" : "", rescued ? "rescue" : ""].join(" ");
+      // A killed worker keeps heartbeating-as-alive for a few seconds until
+      // its heartbeat goes stale; show the kill right away instead.
+      const dying = w.alive && killedAt[w.id];
+      const cls = ["worker", w.alive ? "" : "dead", dying ? "flash" : "", rescued ? "rescue" : ""].join(" ");
+      const badge = !w.alive ? `<span class="badge down">DEAD</span>`
+        : dying ? `<span class="badge down">KILLED</span>` : `<span class="badge alive">ALIVE</span>`;
+      const button = !w.alive ? `<button class="kill" disabled>EXITED</button>`
+        : dying ? `<button class="kill" disabled>EXIT(1) SENT · JOBS ORPHANED</button>`
+        : `<button class="kill" data-kill="${esc(w.id)}">KILL  ·  os.Exit(1)</button>`;
       return `<div class="${cls}" id="w-${esc(w.id)}">
-        <div class="top"><span class="id" title="${esc(w.id)}">${esc(w.id)}</span>
-          <span class="badge ${w.alive ? "alive" : "down"}">${w.alive ? "ALIVE" : "DEAD"}</span></div>
+        <div class="top"><span class="id" title="${esc(w.id)}">${esc(w.id)}</span>${badge}</div>
         <div class="bar"><i style="width:${pct}%"></i></div>
         <div class="stats">
           <span><b>${w.in_flight}</b>/${w.concurrency} running</span>
@@ -220,7 +227,7 @@
           <span><b>${fmt(w.failed)}</b> failed</span>
           <span><b>${fmt(w.reclaimed)}</b> rescued</span>
         </div>
-        <button class="kill" data-kill="${esc(w.id)}" ${w.alive ? "" : "disabled"}>${w.alive ? "KILL  ·  os.Exit(1)" : "EXITED"}</button>
+        ${button}
       </div>`;
     }).join("");
   }
@@ -239,7 +246,7 @@
       try { sessionStorage.setItem("relayKillToken", token); } catch {}
       res = await fetch(`/workers/${encodeURIComponent(id)}/kill?token=${encodeURIComponent(token)}`, { method: "POST" });
     }
-    if (!res.ok) { e.target.disabled = false; e.target.textContent = "KILL FAILED"; }
+    if (!res.ok) { delete killedAt[id]; e.target.disabled = false; e.target.textContent = "KILL FAILED"; }
   });
 
   // ---- stats ----------------------------------------------------------
