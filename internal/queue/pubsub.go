@@ -72,9 +72,9 @@ func (q *Queue) PublishKill(ctx context.Context, workerID string) (int64, error)
 	return q.rdb.Publish(ctx, q.Keys.Control, b).Result()
 }
 
-// SubscribeControl delivers control messages addressed to workerID. The
-// returned function blocks until the subscription is confirmed, so callers
-// know a kill sent afterwards will arrive.
+// SubscribeControl delivers control messages addressed to workerID. It
+// returns only once Redis has confirmed the subscription, so a kill sent
+// after it returns is guaranteed to arrive.
 func (q *Queue) SubscribeControl(ctx context.Context, workerID string) (<-chan ControlMessage, error) {
 	sub := q.rdb.Subscribe(ctx, q.Keys.Control)
 	if _, err := sub.Receive(ctx); err != nil {
