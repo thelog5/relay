@@ -1,0 +1,46 @@
+# Fly.io fallback (R11) if the Terraform/EC2 path runs over its 2-hour budget.
+# One app, two process groups sharing the same image. Postgres and Redis
+# come from `fly postgres create` and a small Redis app (see README.md here).
+#
+#   fly launch --no-deploy --copy-config --config infra/fly/fly.toml
+#   fly secrets set DATABASE_URL=... REDIS_URL=... KILL_TOKEN=...
+#   fly deploy --config infra/fly/fly.toml
+#   fly scale count api=1 worker=3
+
+app = "relay-demo"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../../Dockerfile"
+
+[processes]
+  api = "api"
+  worker = "worker"
+
+[env]
+  HTTP_ADDR = ":8080"
+  METRICS_ADDR = ":9091"
+  WORKER_CONCURRENCY = "8"
+
+[http_service]
+  internal_port = 8080
+  processes = ["api"]
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "3s"
+
+# Fly restarts a worker machine that exits, like restart: unless-stopped.
+[[restart]]
+  policy = "always"
+  processes = ["worker"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
