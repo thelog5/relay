@@ -21,3 +21,4 @@ Open questions and blockers live in the "Relay Build — Open Questions & Blocke
 | 11 | 2026-11-07 04:48 | relayctl acceptance runs against compose: soak, crash, chaos | Acceptance 1-3 | 10k flaky@30%: 9,972 ok / 28 dead / 0 stuck in 22s. Crash: 8 orphans done 8.3s after kill. Chaos (kill all 3): 2,000/2,000, 0 lost |
 | 12 | 2026-11-07 04:48 | Fix: orphaned jobs jump the backlog | R6 | Chaos run exposed 17s rescue under backlog; now ~7s; regression test fails on old loop |
 | 13 | 2026-11-07 04:49 | Automated e2e crash tests with real processes | Acceptance 2-3 | Kill via API mid-job: orphans done 7.5s after kill (<15s). SIGKILL all + restart: 300/300, 0 lost |
+| 14 | 2026-11-07 04:57 | CI workflow, lint config, Terraform (EC2), Fly fallback, Makefile | R11 Acceptance 5 | Terraform validated with OpenTofu; NOT applied (needs AWS creds). CI not yet run on GitHub (not pushed) |
