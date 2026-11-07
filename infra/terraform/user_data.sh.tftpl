@@ -1,0 +1,50 @@
+#!/bin/bash
+# Boots a fresh Ubuntu 24.04 instance into a running Relay stack.
+set -euxo pipefail
+exec > >(tee /var/log/relay-bootstrap.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y ca-certificates curl git
+
+# Docker Engine + compose plugin from Docker's apt repository.
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+usermod -aG docker ubuntu || true
+
+git clone ${repo_url} /opt/relay
+cd /opt/relay
+git checkout ${repo_ref}
+
+cat > /opt/relay/.env <<ENV
+KILL_TOKEN=${kill_token}
+ENV
+chmod 600 /opt/relay/.env
+
+docker compose up -d --build
+
+# Bring the stack back after a reboot.
+cat > /etc/systemd/system/relay.service <<UNIT
+[Unit]
+Description=Relay docker compose stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/relay
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable relay.service
