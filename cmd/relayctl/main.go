@@ -121,6 +121,29 @@ type job struct {
 	MaxAttempts int       `json:"max_attempts"`
 	WorkerID    string    `json:"worker_id"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Events      []struct {
+		From string    `json:"from_status"`
+		To   string    `json:"to_status"`
+		At   time.Time `json:"at"`
+	} `json:"events"`
+}
+
+// reclaimGaps returns, for each time this job was taken over from a crashed
+// worker, how long it sat between starting on the dead worker and restarting
+// on a live one (from job_events timestamps).
+func (j job) reclaimGaps() []time.Duration {
+	var gaps []time.Duration
+	var lastRun time.Time
+	for _, e := range j.Events {
+		if e.To != "running" {
+			continue
+		}
+		if e.From == "running" && !lastRun.IsZero() {
+			gaps = append(gaps, e.At.Sub(lastRun))
+		}
+		lastRun = e.At
+	}
+	return gaps
 }
 
 type worker struct {
@@ -429,19 +452,35 @@ func cmdChaos(args []string) error {
 	}
 	// Check every job individually: the count of jobs in Postgres vs jobs sent.
 	lost := 0
+	var gaps []time.Duration
 	for _, id := range ids {
 		j, err := c.getJob(id)
 		if err != nil || j.Status != "succeeded" {
 			lost++
+			continue
 		}
+		gaps = append(gaps, j.reclaimGaps()...)
 	}
-	fmt.Printf("\nchaos result\n  sent       %d\n  succeeded  %d\n  lost       %d\n  rescued    %d (avg gap %.1fs, worst %.1fs)\n",
-		len(ids), after.Statuses["succeeded"]-before.Statuses["succeeded"], lost, after.Recovery.Reclaimed, after.Recovery.Avg, after.Recovery.Max)
+	avg, worst := summarize(gaps)
+	fmt.Printf("\nchaos result\n  sent       %d\n  succeeded  %d\n  lost       %d\n  rescued    %d (avg gap %s, worst %s)\n",
+		len(ids), after.Statuses["succeeded"]-before.Statuses["succeeded"], lost, len(gaps), avg, worst)
 	if lost > 0 {
 		return fmt.Errorf("%d jobs did not succeed", lost)
 	}
 	fmt.Println("PASS: zero jobs lost after killing every worker")
 	return nil
+}
+
+func summarize(ds []time.Duration) (avg, worst time.Duration) {
+	if len(ds) == 0 {
+		return 0, 0
+	}
+	var sum time.Duration
+	for _, d := range ds {
+		sum += d
+		worst = max(worst, d)
+	}
+	return (sum / time.Duration(len(ds))).Round(10 * time.Millisecond), worst.Round(10 * time.Millisecond)
 }
 
 func countNonEmpty(ids []string) int {
