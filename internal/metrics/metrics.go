@@ -40,6 +40,11 @@ var (
 		Help: "Delayed retries moved back onto the stream by the scheduler.",
 	})
 
+	JobsReconciled = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "relay_jobs_reconciled_total",
+		Help: "Queued jobs found missing from Redis and put back on the stream.",
+	})
+
 	QueueDepth = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "relay_queue_depth",
 		Help: "Outstanding work by where it sits: backlog, pending, retry, dead.",

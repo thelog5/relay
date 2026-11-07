@@ -228,6 +228,52 @@ func (q *Queue) RemoveDead(ctx context.Context, jobID string) (int, error) {
 	}
 }
 
+// Outstanding reports which of ids are somewhere in Redis: on the stream
+// (unread or pending) or in the retry set. Scans the stream, which only ever
+// holds unfinished work because acked entries are deleted.
+func (q *Queue) Outstanding(ctx context.Context, ids []string) (map[string]bool, error) {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = false
+	}
+	start := "-"
+	for {
+		msgs, err := q.rdb.XRangeN(ctx, q.Keys.Jobs, start, "+", 1000).Result()
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range msgs {
+			if id, ok := m.Values["job_id"].(string); ok {
+				if _, tracked := want[id]; tracked {
+					want[id] = true
+				}
+			}
+		}
+		if len(msgs) < 1000 {
+			break
+		}
+		start = "(" + msgs[len(msgs)-1].ID
+	}
+	p := q.rdb.Pipeline()
+	scores := make(map[string]*redis.FloatCmd, len(ids))
+	for _, id := range ids {
+		if !want[id] {
+			scores[id] = p.ZScore(ctx, q.Keys.Retry, id)
+		}
+	}
+	if len(scores) > 0 {
+		if _, err := p.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+			return nil, err
+		}
+		for id, c := range scores {
+			if c.Err() == nil {
+				want[id] = true
+			}
+		}
+	}
+	return want, nil
+}
+
 // Depth summarizes where outstanding work sits.
 type Depth struct {
 	Stream  int64 `json:"stream"`  // entries in the stream (unread + pending)

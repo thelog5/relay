@@ -308,6 +308,18 @@ func (s *Store) RequeueDue(ctx context.Context, ids []string, actor string) ([]s
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
+// StaleQueued returns IDs of jobs that have sat in queued since before
+// cutoff, oldest first. The reconciler checks these against Redis.
+func (s *Store) StaleQueued(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id::text FROM jobs
+		WHERE status = 'queued' AND updated_at < $1
+		ORDER BY updated_at LIMIT $2`, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 // DeleteJob removes a job and its events (R12). Only terminal jobs can be
 // deleted so a running job never disappears from under a worker.
 func (s *Store) DeleteJob(ctx context.Context, id string) error {

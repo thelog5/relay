@@ -64,6 +64,13 @@ func run(log *slog.Logger) error {
 		Logger:   log.With("component", "scheduler"),
 	}
 	go sched.Run(ctx)
+	go (&scheduler.Reconciler{
+		Store:    st,
+		Queue:    q,
+		Interval: config.Duration("RECONCILE_INTERVAL", 30*time.Second),
+		Grace:    config.Duration("RECONCILE_GRACE", 30*time.Second),
+		Logger:   log.With("component", "reconciler"),
+	}).Run(ctx)
 	go srv.RunHub(ctx)
 
 	addr := config.String("HTTP_ADDR", ":8080")
