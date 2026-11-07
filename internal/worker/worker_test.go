@@ -393,3 +393,39 @@ func TestWorkerRegistersAndCounts(t *testing.T) {
 		t.Fatalf("worker stats: %+v", ws[0])
 	}
 }
+
+// A registered worker stops heartbeating mid-job. Survivors must take its
+// jobs via the fast path long before the XAUTOCLAIM idle threshold.
+func TestFastRescueFromWorkerWithStaleHeartbeat(t *testing.T) {
+	h := newHarness(t)
+	var ids []string
+	for i := 0; i < 4; i++ {
+		ids = append(ids, h.enqueue("sleep", `{"ms":10}`, 5))
+	}
+	h.q.Heartbeat(h.ctx, queue.WorkerInfo{ID: "victim", StartedAt: time.Now()})
+	msgs, _ := h.q.Read(h.ctx, "victim", 10, 100*time.Millisecond)
+	if len(msgs) != 4 {
+		t.Fatalf("victim read %d", len(msgs))
+	}
+	for _, m := range msgs {
+		h.store.Transition(h.ctx, m.JobID, store.TransitionOpts{From: []jobs.Status{jobs.StatusQueued}, To: jobs.StatusRunning, WorkerID: "victim", IncAttempts: true})
+	}
+	killedAt := time.Now()
+
+	cfg := fastConfig("rescuer")
+	cfg.ReclaimIdle = time.Minute // make sure only the fast path can help
+	cfg.ReclaimInterval = time.Minute
+	h.startWorker(cfg)
+	h.waitTerminal(4, 10*time.Second)
+	took := time.Since(killedAt)
+	// DeadAfter = 3 x 200ms heartbeat; minIdle = 2 x 150ms lease.
+	if took > 3*time.Second {
+		t.Fatalf("fast rescue took %v", took)
+	}
+	for _, id := range ids {
+		j, _ := h.store.GetJob(h.ctx, id)
+		if j.Status != jobs.StatusSucceeded || j.WorkerID != "rescuer" {
+			t.Fatalf("job not rescued: %+v", j)
+		}
+	}
+}

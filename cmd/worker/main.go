@@ -57,6 +57,7 @@ func main() {
 		ReclaimIdle:       config.Duration("RECLAIM_IDLE", 10*time.Second),
 		LeaseInterval:     config.Duration("LEASE_INTERVAL", 3*time.Second),
 		HeartbeatInterval: config.Duration("HEARTBEAT_INTERVAL", 2*time.Second),
+		DeadAfter:         config.Duration("DEAD_AFTER", 6*time.Second),
 		JobTimeout:        config.Duration("JOB_TIMEOUT", 60*time.Second),
 		ShutdownGrace:     config.Duration("SHUTDOWN_GRACE", 20*time.Second),
 		Logger:            log,

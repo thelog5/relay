@@ -49,6 +49,12 @@ type Config struct {
 	LeaseInterval time.Duration
 	// HeartbeatInterval is how often the worker refreshes its registry entry.
 	HeartbeatInterval time.Duration
+	// DeadAfter is how stale a worker's heartbeat must be before survivors
+	// treat it as crashed and take its jobs right away (the fast path; the
+	// XAUTOCLAIM sweep is the safety net). Requires LeaseInterval > 0.
+	DeadAfter time.Duration
+	// DeadCheckInterval is how often the fast path looks for dead workers.
+	DeadCheckInterval time.Duration
 	// JobTimeout bounds a single handler run.
 	JobTimeout time.Duration
 	// ShutdownGrace is how long SIGTERM waits for in-flight jobs.
@@ -79,6 +85,12 @@ func (c *Config) defaults() {
 	}
 	if c.HeartbeatInterval <= 0 {
 		c.HeartbeatInterval = 2 * time.Second
+	}
+	if c.DeadAfter <= 0 {
+		c.DeadAfter = 3 * c.HeartbeatInterval
+	}
+	if c.DeadCheckInterval <= 0 {
+		c.DeadCheckInterval = time.Second
 	}
 	if c.JobTimeout <= 0 {
 		c.JobTimeout = 60 * time.Second
@@ -121,9 +133,10 @@ type Worker struct {
 	reg   jobs.Registry
 	log   *slog.Logger
 
-	slots    chan struct{} // buffered to Concurrency; send = acquire
 	wg       sync.WaitGroup
-	inFlight atomic.Int64
+	running  atomic.Int64  // dispatched and not yet finished (capacity)
+	inFlight atomic.Int64  // currently inside a handler (reported)
+	freed    chan struct{} // signalled when a dispatched job finishes
 	started  time.Time
 }
 
@@ -136,7 +149,7 @@ func New(cfg Config, st *store.Store, q *queue.Queue, reg jobs.Registry) *Worker
 		q:     q,
 		reg:   reg,
 		log:   cfg.Logger.With("worker", cfg.ID),
-		slots: make(chan struct{}, cfg.Concurrency),
+		freed: make(chan struct{}, 1),
 	}
 }
 
@@ -169,7 +182,6 @@ func (w *Worker) Run(ctx context.Context) error {
 		w.log.Warn("first heartbeat failed", "err", err)
 	}
 	go w.heartbeatLoop(ctx)
-	go w.reclaimLoop(ctx, jobsCtx)
 
 	w.log.Info("worker started",
 		"concurrency", w.cfg.Concurrency,
@@ -177,7 +189,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		"reclaim_idle", w.cfg.ReclaimIdle,
 		"lease_interval", w.cfg.LeaseInterval)
 
-	w.fetchLoop(ctx, jobsCtx)
+	w.loop(ctx, jobsCtx)
 
 	w.log.Info("shutting down, waiting for in-flight jobs", "in_flight", w.inFlight.Load())
 	done := make(chan struct{})
@@ -241,66 +253,63 @@ func (w *Worker) heartbeatLoop(ctx context.Context) {
 	}
 }
 
-// acquire takes between 1 and max slots, blocking for the first.
-func (w *Worker) acquire(ctx context.Context, max int) int {
-	select {
-	case w.slots <- struct{}{}:
-	case <-ctx.Done():
-		return 0
-	}
-	n := 1
-	for n < max {
-		select {
-		case w.slots <- struct{}{}:
-			n++
-		default:
-			return n
-		}
-	}
-	return n
-}
-
-// tryAcquire takes up to max slots without blocking.
-func (w *Worker) tryAcquire(max int) int {
-	n := 0
-	for n < max {
-		select {
-		case w.slots <- struct{}{}:
-			n++
-		default:
-			return n
-		}
-	}
-	return n
-}
-
-func (w *Worker) release(n int) {
-	for i := 0; i < n; i++ {
-		<-w.slots
-	}
-}
-
-func (w *Worker) fetchLoop(ctx, jobsCtx context.Context) {
+// loop is the worker's single scheduling loop. It owns all concurrency
+// decisions: it reads new messages only for free capacity, and it runs
+// XAUTOCLAIM on schedule even while blocked waiting for new work, by capping
+// the XREADGROUP BLOCK at the time left until the next reclaim. Keeping both
+// in one loop means reclaim is never starved by a reader hoarding capacity.
+func (w *Worker) loop(ctx, jobsCtx context.Context) {
 	// Anything this consumer name was holding before a restart comes first.
-	if n := w.tryAcquire(w.cfg.Concurrency); n > 0 {
-		msgs, err := w.q.ReadOwnPending(ctx, w.cfg.ID, int64(n))
-		if err != nil {
-			w.log.Warn("read own pending failed", "err", err)
-		}
-		w.release(n - len(msgs))
+	if msgs, err := w.q.ReadOwnPending(ctx, w.cfg.ID, int64(w.cfg.Concurrency)); err != nil {
+		w.log.Warn("read own pending failed", "err", err)
+	} else {
 		for _, m := range msgs {
 			w.dispatch(jobsCtx, m, false)
 		}
 	}
 
+	// Stagger workers so their XAUTOCLAIMs do not land together, which also
+	// shortens worst-case recovery across the fleet.
+	nextReclaim := time.Now().Add(time.Duration(rand.Int64N(int64(w.cfg.ReclaimInterval))))
+	nextDeadCheck := time.Now().Add(w.cfg.DeadCheckInterval)
+	fastPath := w.cfg.LeaseInterval > 0
+	reclaims := 0
 	backoff := 100 * time.Millisecond
+
 	for ctx.Err() == nil {
-		n := w.acquire(ctx, w.cfg.Concurrency)
-		if n == 0 {
-			return
+		if fastPath && !time.Now().Before(nextDeadCheck) {
+			w.rescueDeadWorkers(ctx, jobsCtx)
+			nextDeadCheck = time.Now().Add(w.cfg.DeadCheckInterval)
 		}
-		msgs, err := w.q.Read(ctx, w.cfg.ID, int64(n), w.cfg.ReadBlock)
-		w.release(n - len(msgs))
+		if !time.Now().Before(nextReclaim) {
+			w.reclaimOnce(ctx, jobsCtx)
+			nextReclaim = time.Now().Add(w.cfg.ReclaimInterval)
+			if reclaims++; reclaims%12 == 0 {
+				if n, err := w.q.PruneConsumers(ctx, 5*time.Minute); err == nil && n > 0 {
+					w.log.Info("pruned idle consumers", "count", n)
+				}
+			}
+		}
+
+		untilReclaim := time.Until(nextReclaim)
+		if fastPath {
+			untilReclaim = min(untilReclaim, time.Until(nextDeadCheck))
+		}
+		free := w.cfg.Concurrency - int(w.running.Load())
+		if free <= 0 {
+			// Full: wait for a job to finish or for the next reclaim tick.
+			t := time.NewTimer(max(untilReclaim, time.Millisecond))
+			select {
+			case <-ctx.Done():
+			case <-w.freed:
+			case <-t.C:
+			}
+			t.Stop()
+			continue
+		}
+
+		block := min(max(untilReclaim, 10*time.Millisecond), w.cfg.ReadBlock)
+		msgs, err := w.q.Read(ctx, w.cfg.ID, int64(free), block)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -317,34 +326,8 @@ func (w *Worker) fetchLoop(ctx, jobsCtx context.Context) {
 	}
 }
 
-func (w *Worker) reclaimLoop(ctx, jobsCtx context.Context) {
-	// Stagger workers so their XAUTOCLAIMs do not all land at once, which
-	// also shortens the worst-case recovery time across the fleet.
-	sleep(ctx, time.Duration(rand.Int64N(int64(w.cfg.ReclaimInterval))))
-	t := time.NewTicker(w.cfg.ReclaimInterval)
-	defer t.Stop()
-	ticks := 0
-	for {
-		w.reclaimOnce(ctx, jobsCtx)
-		ticks++
-		if ticks%12 == 0 {
-			if n, err := w.q.PruneConsumers(ctx, 5*time.Minute); err == nil && n > 0 {
-				w.log.Info("pruned idle consumers", "count", n)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-	}
-}
-
 func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context) {
-	// Claim only what we have capacity to run. Slot accounting uses jobs
-	// actually executing, not slots: the fetch loop holds idle slots while
-	// it blocks in XREADGROUP, and reclaim must not be starved by that.
-	free := w.cfg.Concurrency - int(w.inFlight.Load())
+	free := w.cfg.Concurrency - int(w.running.Load())
 	if free <= 0 {
 		return // busy; a worker with spare capacity will take them
 	}
@@ -356,23 +339,56 @@ func (w *Worker) reclaimOnce(ctx, jobsCtx context.Context) {
 		return
 	}
 	for _, m := range msgs {
-		// Blocks at most one ReadBlock: Go hands a freed slot to the
-		// longest-waiting sender, so the fetch loop cannot jump the line.
-		if w.acquire(ctx, 1) == 0 {
-			return // shutting down; the claimed messages stay pending
-		}
 		w.log.Info("reclaimed job from idle consumer", "job_id", m.JobID, "msg_id", m.ID)
 		w.dispatch(jobsCtx, m, true)
 	}
 }
 
-// dispatch runs one message on its own goroutine. The caller has already
-// acquired a slot for it; the goroutine releases it.
+// rescueDeadWorkers is the fast reclaim path: any registered worker whose
+// heartbeat is older than DeadAfter is presumed crashed, and its pending
+// messages are claimed as soon as they have been idle longer than one lease
+// renewal (so a live-but-slow worker's renewed jobs are never taken).
+func (w *Worker) rescueDeadWorkers(ctx, jobsCtx context.Context) {
+	free := w.cfg.Concurrency - int(w.running.Load())
+	if free <= 0 {
+		return
+	}
+	dead, err := w.q.DeadConsumers(ctx, w.cfg.DeadAfter)
+	if err != nil || len(dead) == 0 {
+		return
+	}
+	minIdle := 2 * w.cfg.LeaseInterval
+	for _, victim := range dead {
+		if victim == w.cfg.ID || free <= 0 {
+			continue
+		}
+		msgs, err := w.q.ClaimFrom(ctx, w.cfg.ID, victim, minIdle, int64(free))
+		if err != nil {
+			w.log.Warn("claim from dead worker failed", "victim", victim, "err", err)
+			continue
+		}
+		for _, m := range msgs {
+			w.log.Info("rescued job from dead worker", "victim", victim, "job_id", m.JobID)
+			w.dispatch(jobsCtx, m, true)
+			free--
+		}
+	}
+}
+
+// dispatch runs one message on its own goroutine and counts it against the
+// worker's concurrency until it finishes.
 func (w *Worker) dispatch(ctx context.Context, m queue.Message, reclaimed bool) {
+	w.running.Add(1)
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		defer w.release(1)
+		defer func() {
+			w.running.Add(-1)
+			select {
+			case w.freed <- struct{}{}:
+			default:
+			}
+		}()
 		w.process(ctx, m, reclaimed)
 	}()
 }
