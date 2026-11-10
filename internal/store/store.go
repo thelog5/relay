@@ -308,11 +308,12 @@ func (s *Store) RequeueDue(ctx context.Context, ids []string, actor string) ([]s
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// StaleQueued returns IDs of jobs that have sat in queued since before
-// cutoff, oldest first. The reconciler checks these against Redis.
-func (s *Store) StaleQueued(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
+// StaleUnfinished returns IDs of jobs that are queued, running or waiting to
+// retry and whose last status change is older than cutoff. The reconciler
+// checks these against Redis; any that Redis has no trace of get re-enqueued.
+func (s *Store) StaleUnfinished(ctx context.Context, cutoff time.Time, limit int) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT id::text FROM jobs
-		WHERE status = 'queued' AND updated_at < $1
+		WHERE status IN ('queued', 'running', 'retry_scheduled') AND updated_at < $1
 		ORDER BY updated_at LIMIT $2`, cutoff, limit)
 	if err != nil {
 		return nil, err

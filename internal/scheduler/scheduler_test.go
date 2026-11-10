@@ -110,3 +110,54 @@ func TestReconcileReenqueuesOnlyMissingJobs(t *testing.T) {
 		t.Fatalf("second pass re-enqueued %d", n)
 	}
 }
+
+// Redis restarting without persistence loses every stream entry and retry
+// timer. Postgres still knows which jobs are unfinished; the reconciler puts
+// exactly the ones Redis forgot back on the stream.
+func TestReconcileRecoversJobsAfterRedisDataLoss(t *testing.T) {
+	st, q := setup(t)
+	ctx := context.Background()
+	newJob := func() string {
+		id := uuid.NewString()
+		if _, err := st.CreateJob(ctx, id, "sleep", json.RawMessage(`{"ms":1}`), 5); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	toStatus := func(id string, from, to jobs.Status) {
+		if _, _, err := st.Transition(ctx, id, store.TransitionOpts{From: []jobs.Status{from}, To: to, WorkerID: "w-old", IncAttempts: to == jobs.StatusRunning}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Running on a live worker: its message is still pending in the stream.
+	live := newJob()
+	q.Enqueue(ctx, live)
+	q.Read(ctx, "w-live", 10, 10*time.Millisecond)
+	toStatus(live, jobs.StatusQueued, jobs.StatusRunning)
+	// Waiting out a backoff in the retry set.
+	waiting := newJob()
+	toStatus(waiting, jobs.StatusQueued, jobs.StatusRunning)
+	toStatus(waiting, jobs.StatusRunning, jobs.StatusRetryScheduled)
+	q.Client().ZAdd(ctx, q.Keys.Retry, redisZ(waiting))
+	// Lost with the Redis restart: Postgres says running / retrying, Redis
+	// has nothing.
+	lostRunning := newJob()
+	toStatus(lostRunning, jobs.StatusQueued, jobs.StatusRunning)
+	lostRetry := newJob()
+	toStatus(lostRetry, jobs.StatusQueued, jobs.StatusRunning)
+	toStatus(lostRetry, jobs.StatusRunning, jobs.StatusRetryScheduled)
+
+	r := &Reconciler{Store: st, Queue: q, Grace: time.Minute}
+	n, err := r.Once(ctx, time.Now().Add(2*time.Minute))
+	if err != nil || n != 2 {
+		t.Fatalf("reconcile: %d %v", n, err)
+	}
+	msgs, _ := q.Read(ctx, "w-new", 10, 50*time.Millisecond)
+	got := map[string]bool{}
+	for _, m := range msgs {
+		got[m.JobID] = true
+	}
+	if len(msgs) != 2 || !got[lostRunning] || !got[lostRetry] {
+		t.Fatalf("re-enqueued %v, want only the two lost jobs", got)
+	}
+}

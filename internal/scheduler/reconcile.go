@@ -10,11 +10,20 @@ import (
 	"github.com/thelog5/relay/internal/store"
 )
 
-// Reconciler repairs the one gap between Postgres and Redis that the write
-// order cannot close by itself: a job row committed as queued whose XADD
-// never happened (the api crashed between the two writes). Every Interval it
-// looks at jobs queued for longer than Grace and puts any that are missing
-// from Redis back on the stream.
+// Reconciler repairs the gaps between Postgres and Redis that the write
+// order cannot close by itself:
+//
+//   - a job row committed as queued whose XADD never happened (the api
+//     crashed between the two writes);
+//   - unfinished jobs whose Redis entries vanished because Redis restarted
+//     without persistence (free hosted instances do this).
+//
+// Every Interval it looks at queued, running and retrying jobs that have not
+// changed for longer than Grace and puts any that Redis has no trace of (not
+// in the stream, not in the retry set) back on the stream. A healthy running
+// job is always still in the stream's pending list, so it is left alone; a
+// job that finishes between the two checks is acked as a duplicate by the
+// worker's status fencing.
 type Reconciler struct {
 	Store    *store.Store
 	Queue    *queue.Queue
@@ -58,7 +67,7 @@ func (r *Reconciler) Once(ctx context.Context, now time.Time) (int, error) {
 	if batch <= 0 {
 		batch = 1000
 	}
-	ids, err := r.Store.StaleQueued(ctx, now.Add(-grace), batch)
+	ids, err := r.Store.StaleUnfinished(ctx, now.Add(-grace), batch)
 	if err != nil || len(ids) == 0 {
 		return 0, err
 	}
