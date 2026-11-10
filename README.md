@@ -11,8 +11,9 @@ few seconds later.
 ![Relay dashboard: a worker is killed mid-job and its jobs are rescued](docs/demo.gif)
 
 <sub>Recorded with `node scripts/record-demo.mjs` against `docker compose up`:
-jobs flow, a worker is killed from the dashboard mid-job, the survivors rescue
-its 8 jobs about 6.5s later, and Docker restarts it under a new name.</sub>
+jobs flow, a worker is killed from the dashboard mid-job, its 8 in-flight jobs
+show as orphaned, the other workers pick them up a few seconds later, and Docker
+restarts the killed worker under a new name.</sub>
 
 ```
 docker compose up --build

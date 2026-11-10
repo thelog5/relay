@@ -113,7 +113,7 @@ mkdirSync(dirname(OUT), { recursive: true });
 const palette = join(work, "palette.png");
 const scale = "fps=" + FPS + ",scale=1100:-1:flags=lanczos";
 execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", join(frames, "f%04d.png"),
-  "-vf", `${scale},palettegen=max_colors=96:stats_mode=diff`, palette]);
+  "-vf", `${scale},palettegen=max_colors=128:stats_mode=full`, palette]);
 execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", join(frames, "f%04d.png"), "-i", palette,
   "-lavfi", `${scale}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`, OUT]);
 rmSync(work, { recursive: true, force: true });
