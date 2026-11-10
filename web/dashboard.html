@@ -48,6 +48,9 @@
   .btn:disabled { cursor: default; opacity: .5; }
   .btn-danger { color: var(--dead); border-color: #44191b; background: transparent; }
   .btn-danger:hover:not(:disabled) { background: #1d0b0c; border-color: #6b2326; }
+  .btn-quiet { height: 26px; background: transparent; border-color: #262626; color: var(--ink-2); }
+  .btn-quiet:hover:not(:disabled) { color: var(--ink); }
+  .btn-quiet.del:hover:not(:disabled) { color: var(--dead); border-color: #6b2326; background: #1d0b0c; }
   .btn-primary { background: var(--ink); color: #000; border-color: var(--ink); }
   .btn-primary:hover:not(:disabled) { background: #fff; border-color: #fff; }
 
@@ -193,7 +196,7 @@
   <section class="section totals" aria-label="Jobs by status">
     <div class="total"><div class="k"><span class="dot" data-s="queued"></span>Queued</div><div class="v" id="t-queued">0</div></div>
     <div class="total"><div class="k"><span class="dot" data-s="running"></span>Running</div><div class="v" id="t-running">0</div></div>
-    <div class="total"><div class="k"><span class="dot" data-s="retry_scheduled"></span>Waiting to retry</div><div class="v" id="t-retry_scheduled">0</div></div>
+    <div class="total"><div class="k"><span class="dot" data-s="retry_scheduled"></span>Retrying</div><div class="v" id="t-retry_scheduled">0</div></div>
     <div class="total"><div class="k"><span class="dot" data-s="succeeded"></span>Succeeded</div><div class="v" id="t-succeeded">0</div></div>
     <div class="total"><div class="k"><span class="dot" data-s="dead"></span>Dead</div><div class="v" id="t-dead">0</div></div>
     <div class="total"><div class="k">Throughput</div><div class="v"><span id="t-rate">0</span><small>jobs/s</small></div></div>
@@ -305,7 +308,7 @@
   function niceMax(v) {
     v = Math.max(4, v);
     const mag = Math.pow(10, Math.floor(Math.log10(v)));
-    for (const m of [1, 2, 4, 6, 8, 10]) if (m * mag >= v) return m * mag;
+    for (const m of [1, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * mag >= v) return m * mag;
     return 10 * mag;
   }
   function drawChart() {
@@ -321,9 +324,9 @@
     const y = (v) => T + (1 - v / max) * (H - T - B);
     let out = "";
     for (const f of [0, 0.5, 1]) {
-      const yy = y(max * f);
+      const yy = y(max * f), tick = max * f;
       out += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${f === 0 ? "#333" : "#1c1c1c"}" stroke-width="1"/>`;
-      out += `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${fmt(max * f)}</text>`;
+      if (Number.isInteger(tick)) out += `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${fmt(tick)}</text>`;
     }
     [["2 min ago", 0, "start"], ["1 min ago", 0.5, "middle"], ["Now", 1, "end"]].forEach(([t, f, a]) => {
       out += `<text x="${L + f * (W - L - R)}" y="${H - 6}" text-anchor="${a}">${t}</text>`;
@@ -515,7 +518,7 @@
       $("dl").innerHTML = jobs.map((j) => `
         <tr><td class="mono" title="${esc(j.id)}">${short(j.id)}</td><td>${esc(j.type)}</td><td class="num">${j.attempts} of ${j.max_attempts}</td>
           <td class="detail err" title="${esc(j.last_error)}">${esc(j.last_error)}</td>
-          <td><div class="actions"><button class="btn" type="button" data-retry="${esc(j.id)}">Retry</button><button class="btn btn-danger" type="button" data-del="${esc(j.id)}">Delete</button></div></td></tr>`).join("");
+          <td><div class="actions"><button class="btn btn-quiet" type="button" data-retry="${esc(j.id)}">Retry</button><button class="btn btn-quiet del" type="button" data-del="${esc(j.id)}">Delete</button></div></td></tr>`).join("");
     } catch {}
   }
   $("dl").addEventListener("click", async (e) => {
