@@ -26,3 +26,4 @@ Open questions and blockers live in the "Relay Build — Open Questions & Blocke
 | 16 | 2026-11-07 05:02 | README: guarantee, architecture, recovery design, API, config, numbers | PRD README asks | Deployed-instance numbers + GIF left as TODO for Logan |
 | 17 | 2026-11-07 06:45 | Clean full test run + laptop load test results | Numbers table | All 9 packages pass with -race. Laptop: 1,508 jobs/s end to end (223,199 jobs, 0 lost), p99 39.9ms @1k req/s. Deployed numbers still TODO |
 | 18 | 2026-11-07 06:48 | Demo GIF recorded (scripted) + KILLED state on dashboard | Acceptance 6 | docs/demo.gif, 2.8 MB, 19s: kill via dashboard button, 8 jobs rescued avg 6.5s. Re-record anytime: node scripts/record-demo.mjs |
+| 19 | 2026-11-10 18:27 | Dashboard redesign (black, professional) + GIF re-recorded | R8 | Sans-serif ops layout, worker job-slot view, axis chart with hover, real tables, token dialog; GIF 2.8MB -> 256KB |
