@@ -109,6 +109,13 @@ func (q *Queue) read(ctx context.Context, consumer, start string, count int64, b
 	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	}
+	if err != nil && strings.Contains(err.Error(), "NOGROUP") {
+		// Redis lost the stream or the group (a restart without
+		// persistence, such as a free hosted instance). Recreate them and
+		// let the caller read again; the reconciler re-enqueues any jobs
+		// Postgres still has as unfinished.
+		return nil, q.EnsureGroup(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -279,3 +279,23 @@ func TestDeadConsumerFastClaim(t *testing.T) {
 		t.Fatalf("messages claimed twice: %+v", again)
 	}
 }
+
+func TestReadRecreatesLostGroup(t *testing.T) {
+	q := newQueue(t)
+	ctx := context.Background()
+	// Simulate Redis restarting without persistence: stream and group gone.
+	if err := q.Client().Del(ctx, q.Keys.Jobs).Err(); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := q.Read(ctx, "w1", 10, 10*time.Millisecond)
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("read after group loss: %v %v", msgs, err)
+	}
+	if _, err := q.Enqueue(ctx, "job-after-restart"); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err = q.Read(ctx, "w1", 10, 100*time.Millisecond)
+	if err != nil || len(msgs) != 1 || msgs[0].JobID != "job-after-restart" {
+		t.Fatalf("read after recreate: %v %v", msgs, err)
+	}
+}
