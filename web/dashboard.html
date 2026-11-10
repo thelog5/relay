@@ -3,340 +3,562 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relay · live</title>
+<title>Relay dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0c0f;
-    --panel: #11151a;
-    --panel-2: #161b22;
-    --line: #232a33;
-    --text: #d7dee7;
-    --muted: #7d8794;
-    --queued: #7aa2f7;
-    --running: #e0af68;
-    --retry: #bb9af7;
-    --succeeded: #9ece6a;
-    --dead: #f7768e;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+    --bg: #000000;
+    --raised: #0c0c0c;
+    --border: #232323;
+    --divider: #171717;
+    --ink: #ededed;
+    --ink-2: #a3a3a3;
+    --ink-3: #6f6f6f;
+    --queued: #8f8f8f;
+    --running: #3987e5;
+    --retrying: #fab219;
+    --succeeded: #0ca30c;
+    --dead: #e5484d;
+    --focus: #3987e5;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 var(--sans); }
-  button { font: inherit; cursor: pointer; }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 400 13px/1.45 var(--sans); }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .muted { color: var(--ink-3); }
 
-  header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
-  h1 { margin: 0; font: 600 20px/1 var(--mono); letter-spacing: .5px; }
-  h1 span { color: var(--muted); font-weight: 400; }
-  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 12px var(--mono); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dead); box-shadow: 0 0 0 3px #f7768e22; }
-  .dot.on { background: var(--succeeded); box-shadow: 0 0 0 3px #9ece6a22; }
-  .spacer { flex: 1; }
-  .rate { font: 600 13px var(--mono); color: var(--muted); }
-  .rate b { color: var(--text); font-size: 18px; }
+  /* top bar */
+  .bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 24px; border-bottom: 1px solid var(--border); }
+  .brand { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 12px; }
+  .grow { flex: 1; }
+  .send { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .send-label { color: var(--ink-2); margin-right: 2px; }
+  .send-note { color: var(--ink-3); font-size: 12px; min-width: 150px; }
 
-  .grid { display: grid; gap: 12px; }
-  .counts { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 12px; }
-  .main { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: start; }
-  @media (max-width: 900px) {
-    .counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .main { grid-template-columns: minmax(0, 1fr); }
+  .btn { height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid #2c2c2c; background: #111; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .btn:hover:not(:disabled) { background: #1a1a1a; border-color: #3a3a3a; }
+  .btn:disabled { cursor: default; opacity: .5; }
+  .btn-danger { color: var(--dead); border-color: #44191b; background: transparent; }
+  .btn-danger:hover:not(:disabled) { background: #1d0b0c; border-color: #6b2326; }
+  .btn-primary { background: var(--ink); color: #000; border-color: var(--ink); }
+  .btn-primary:hover:not(:disabled) { background: #fff; border-color: #fff; }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; }
+  .dot[data-s="queued"] { background: var(--queued); }
+  .dot[data-s="running"], .dot[data-s="up"] { background: var(--running); }
+  .dot[data-s="retry_scheduled"], .dot[data-s="reconnecting"] { background: var(--retrying); }
+  .dot[data-s="succeeded"], .dot[data-s="live"], .dot[data-s="rescued"] { background: var(--succeeded); }
+  .dot[data-s="dead"], .dot[data-s="killed"] { background: var(--dead); }
+  .dot[data-s="down"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+
+  main { max-width: 1440px; margin: 0 auto; padding: 20px 24px 40px; display: grid; gap: 16px; }
+  .section { border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+  .section-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--divider); }
+  .section-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .section-head .sub { color: var(--ink-3); font-size: 12px; }
+  .section-head .right { margin-left: auto; display: flex; gap: 20px; flex-wrap: wrap; color: var(--ink-2); font-size: 12px; }
+  .section-head .right b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* status totals */
+  .totals { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .total { padding: 14px 16px 16px; border-left: 1px solid var(--divider); min-width: 0; }
+  .total:first-child { border-left: 0; }
+  .total .k { display: flex; align-items: center; gap: 7px; color: var(--ink-2); }
+  .total .v { margin-top: 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+  .total .v small { font-size: 13px; font-weight: 400; color: var(--ink-3); letter-spacing: 0; margin-left: 4px; }
+
+  /* workers */
+  .wgrid { display: grid; grid-template-columns: 110px 210px minmax(200px, 1fr) 90px 80px 80px 150px 72px; align-items: center; column-gap: 16px; padding: 0 16px; }
+  .whead { height: 34px; color: var(--ink-3); font-size: 12px; border-bottom: 1px solid var(--divider); }
+  .wrow { min-height: 48px; border-bottom: 1px solid var(--divider); transition: background-color .4s; }
+  .wrow:last-child { border-bottom: 0; }
+  .wrow[data-state="killed"] { background: #120607; }
+  .wrow[data-state="down"] { color: var(--ink-3); }
+  .wstatus { display: flex; align-items: center; gap: 8px; }
+  .wid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wslots { display: flex; align-items: center; gap: 10px; }
+  .slots { display: flex; gap: 3px; }
+  .slot { width: 12px; height: 18px; border-radius: 2px; background: #161616; box-shadow: inset 0 0 0 1px #262626; }
+  .slot.on { background: var(--running); box-shadow: none; }
+  .slot.orphan { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dead); }
+  .wrow[data-state="down"] .slot { background: transparent; box-shadow: inset 0 0 0 1px #1f1f1f; }
+  .slot-n { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rescued-cell { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+  .rescued-cell .dot { visibility: hidden; }
+  .rescued-cell.hot .dot { visibility: visible; }
+  .wact { text-align: right; }
+  .wnote { padding: 10px 16px; color: var(--dead); font-size: 12px; border-top: 1px solid var(--divider); }
+  .wnote:empty { display: none; }
+
+  .empty { padding: 28px 16px; color: var(--ink-3); }
+
+  /* chart + queue */
+  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 16px; align-items: stretch; }
+  .split-2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+  .chart-sec { display: flex; flex-direction: column; }
+  .chart-wrap { position: relative; flex: 1; min-height: 210px; }
+  #chart { position: absolute; left: 4px; top: 8px; width: calc(100% - 16px); height: calc(100% - 18px); display: block; touch-action: none; }
+  #chart text { fill: var(--ink-3); font: 11px var(--sans); }
+  .tip { position: absolute; top: 4px; pointer-events: none; background: #111; border: 1px solid #2c2c2c; border-radius: 6px; padding: 6px 9px; font-size: 12px; white-space: nowrap; transform: translateX(-50%); }
+  .tip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tip[hidden] { display: none; }
+
+  .kv { list-style: none; margin: 0; padding: 4px 16px 8px; }
+  .kv li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--divider); }
+  .kv li:last-child { border-bottom: 0; }
+  .kv .what { color: var(--ink-2); }
+  .kv .what small { display: block; color: var(--ink-3); font-size: 12px; }
+  .kv .n { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* tables */
+  .scroll { overflow: auto; max-height: 440px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 400; color: var(--ink-3); font-size: 12px; padding: 8px 12px; border-bottom: 1px solid var(--divider); white-space: nowrap; }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--divider); white-space: nowrap; vertical-align: middle; }
+  th:first-child, td:first-child { padding-left: 16px; }
+  th:last-child, td:last-child { padding-right: 16px; }
+  tr:last-child td { border-bottom: 0; }
+  .feed { min-width: 700px; table-layout: fixed; }
+  .feed td { overflow: hidden; text-overflow: ellipsis; }
+  .change { display: inline-flex; align-items: center; gap: 7px; }
+  .change .from { color: var(--ink-3); }
+  .detail { color: var(--ink-2); }
+  .detail.err { color: #f08a8d; }
+  tr.fresh td { animation: fresh 1.4s ease-out; }
+  @keyframes fresh { from { background: #10161f; } to { background: transparent; } }
+  .dl { min-width: 520px; table-layout: fixed; }
+  .dl td { overflow: hidden; text-overflow: ellipsis; }
+  .dl .actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+  dialog { background: #0c0c0c; color: var(--ink); border: 1px solid #2c2c2c; border-radius: 10px; padding: 20px; width: min(380px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, .7); }
+  dialog h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  dialog p { margin: 0 0 14px; color: var(--ink-2); }
+  dialog input { width: 100%; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid #2c2c2c; background: #000; color: var(--ink); font: 13px var(--mono); }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  @media (max-width: 1100px) {
+    .split, .split-2 { grid-template-columns: minmax(0, 1fr); }
+    .totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .total:nth-child(4) { border-left: 0; }
+    .total:nth-child(n+4) { border-top: 1px solid var(--divider); }
   }
-
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
-  .panel h2 { margin: 0 0 10px; font: 600 11px/1 var(--mono); letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
-  .panel h2 .hint { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: auto; }
-
-  .count { position: relative; overflow: hidden; }
-  .count .label { font: 600 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
-  .count .n { font: 600 30px/1.15 var(--mono); font-variant-numeric: tabular-nums; margin-top: 6px; }
-  .count::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c); }
-  .count .n { color: var(--c); }
-
-  .spark { width: 100%; height: 70px; display: block; }
-  .depth { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-  .depth div { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; }
-  .depth .k { font: 11px var(--mono); color: var(--muted); }
-  .depth .v { font: 600 18px var(--mono); font-variant-numeric: tabular-nums; }
-
-  .workers { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
-  .worker { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 11px; transition: border-color .3s, opacity .3s; }
-  .worker.dead { opacity: .55; border-style: dashed; }
-  .worker.flash { border-color: var(--dead); }
-  .worker.rescue { border-color: var(--succeeded); }
-  .worker .top { display: flex; align-items: center; gap: 8px; }
-  .worker .id { font: 600 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .badge { font: 600 10px var(--mono); padding: 2px 6px; border-radius: 4px; letter-spacing: .5px; }
-  .badge.alive { background: #9ece6a22; color: var(--succeeded); }
-  .badge.down { background: #f7768e22; color: var(--dead); }
-  .bar { height: 6px; background: #0d1014; border-radius: 3px; margin: 10px 0 8px; overflow: hidden; }
-  .bar i { display: block; height: 100%; background: var(--running); transition: width .3s; }
-  .worker .stats { display: flex; gap: 10px; font: 11px var(--mono); color: var(--muted); flex-wrap: wrap; }
-  .worker .stats b { color: var(--text); font-weight: 600; }
-  .kill { margin-top: 10px; width: 100%; background: transparent; color: var(--dead); border: 1px solid #f7768e55; border-radius: 6px; padding: 6px; font: 600 11px var(--mono); letter-spacing: .8px; }
-  .kill:hover:not(:disabled) { background: #f7768e18; border-color: var(--dead); }
-  .kill:disabled { opacity: .4; cursor: default; }
-
-  .recovery { display: flex; gap: 18px; font: 12px var(--mono); color: var(--muted); margin-top: 10px; flex-wrap: wrap; }
-  .recovery b { color: var(--text); font-size: 15px; }
-
-  .feed { font: 12px/1.5 var(--mono); max-height: 420px; overflow: auto; }
-  .row { display: grid; grid-template-columns: 74px 70px 64px minmax(0, 1fr); gap: 8px; padding: 3px 0; border-bottom: 1px solid #1a2028; white-space: nowrap; }
-  .row.new { animation: fade 1.2s ease-out; }
-  @keyframes fade { from { background: #e0af6822; } to { background: transparent; } }
-  .row .t, .row .jid { color: var(--muted); }
-  .row .tr { overflow: hidden; text-overflow: ellipsis; }
-  .row .err { color: var(--dead); }
-  .row .rescue { color: var(--succeeded); }
-  .st { font-weight: 600; }
-  .st.queued { color: var(--queued); } .st.running { color: var(--running); } .st.retry_scheduled { color: var(--retry); }
-  .st.succeeded { color: var(--succeeded); } .st.dead { color: var(--dead); }
-  .muted { color: var(--muted); }
-
-  .dl { font: 12px var(--mono); max-height: 330px; overflow: auto; }
-  .dl .item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid #1a2028; align-items: center; }
-  .dl .err { color: var(--dead); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dl button, .enq button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; font: 11px var(--mono); }
-  .dl button:hover, .enq button:hover { border-color: var(--muted); }
-  .dl .actions { display: flex; gap: 6px; }
-
-  .enq { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .enq .note { font: 11px var(--mono); color: var(--muted); width: 100%; }
-  .side { display: grid; gap: 12px; }
-  .stack { display: grid; gap: 12px; }
+  @media (max-width: 860px) {
+    .bar { padding: 12px 16px; }
+    main { padding: 16px 16px 32px; }
+    .whead { display: none; }
+    .wgrid { grid-template-columns: minmax(0, 1fr) auto; row-gap: 8px; padding: 12px 16px; }
+    .wstatus { grid-column: 1; grid-row: 1; }
+    .wact { grid-column: 2; grid-row: 1 / span 2; }
+    .wid { grid-column: 1; grid-row: 2; }
+    .wslots { grid-column: 1 / -1; }
+    .wrow .wnum, .wrow .wup { display: none; }
+  }
+  @media (max-width: 560px) {
+    .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .total:nth-child(n) { border-left: 0; border-top: 1px solid var(--divider); }
+    .total:nth-child(even) { border-left: 1px solid var(--divider); }
+    .total:nth-child(-n+2) { border-top: 0; }
+    .send-note { min-width: 0; width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>relay <span>/ live</span></h1>
-    <span class="conn"><span class="dot" id="dot"></span><span id="connText">connecting</span></span>
-    <span class="spacer"></span>
-    <span class="rate"><b id="rate">0</b> jobs/s done</span>
-    <span class="rate"><b id="total">0</b> total</span>
-  </header>
+<header class="bar">
+  <span class="brand">Relay</span>
+  <span class="conn"><span class="dot" id="connDot"></span><span id="connText">Connecting</span></span>
+  <span class="grow"></span>
+  <div class="send" id="send">
+    <span class="send-label">Send test jobs</span>
+    <button class="btn" type="button" data-burst="sleep" data-n="60" title="60 jobs that each take 3 seconds">60 slow</button>
+    <button class="btn" type="button" data-burst="fast" data-n="500" title="500 jobs that finish immediately">500 fast</button>
+    <button class="btn" type="button" data-burst="flaky" data-n="300" title="300 jobs that fail 30% of the time and retry">300 flaky</button>
+    <button class="btn" type="button" data-burst="doomed" data-n="5" title="5 jobs that always fail and end up in dead letters">5 failing</button>
+    <span class="send-note" id="sendNote" aria-live="polite"></span>
+  </div>
+</header>
 
-  <section class="grid counts" id="counts"></section>
-
-  <section class="grid main">
-    <div class="stack">
-      <div class="panel">
-        <h2>Workers <span class="hint">kill one mid-job and watch its jobs move</span></h2>
-        <div class="workers" id="workers"><div class="muted">waiting for heartbeats…</div></div>
-        <div class="recovery" id="recovery"></div>
-      </div>
-      <div class="panel">
-        <h2>Throughput <span class="hint">completed per second, last 2 min</span></h2>
-        <svg class="spark" id="spark" viewBox="0 0 600 70" preserveAspectRatio="none"></svg>
-        <div class="depth" id="depth"></div>
-      </div>
-      <div class="panel">
-        <h2>Send jobs</h2>
-        <div class="enq">
-          <button data-burst="sleep" data-n="60">60 × sleep 3s</button>
-          <button data-burst="fast" data-n="500">500 × sleep 0ms</button>
-          <button data-burst="flaky" data-n="300">300 × flaky 30%</button>
-          <button data-burst="doomed" data-n="5">5 × flaky 100%</button>
-          <span class="note" id="enqNote">bursts go through POST /jobs like any client</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="side">
-      <div class="panel">
-        <h2>Live feed <span class="hint" id="dropped"></span></h2>
-        <div class="feed" id="feed"></div>
-      </div>
-      <div class="panel">
-        <h2>Dead letters <span class="hint" id="dlCount"></span></h2>
-        <div class="dl" id="dl"><div class="muted">none</div></div>
-      </div>
-    </div>
+<main>
+  <section class="section totals" aria-label="Jobs by status">
+    <div class="total"><div class="k"><span class="dot" data-s="queued"></span>Queued</div><div class="v" id="t-queued">0</div></div>
+    <div class="total"><div class="k"><span class="dot" data-s="running"></span>Running</div><div class="v" id="t-running">0</div></div>
+    <div class="total"><div class="k"><span class="dot" data-s="retry_scheduled"></span>Waiting to retry</div><div class="v" id="t-retry_scheduled">0</div></div>
+    <div class="total"><div class="k"><span class="dot" data-s="succeeded"></span>Succeeded</div><div class="v" id="t-succeeded">0</div></div>
+    <div class="total"><div class="k"><span class="dot" data-s="dead"></span>Dead</div><div class="v" id="t-dead">0</div></div>
+    <div class="total"><div class="k">Throughput</div><div class="v"><span id="t-rate">0</span><small>jobs/s</small></div></div>
   </section>
-</div>
+
+  <section class="section" aria-labelledby="wTitle">
+    <div class="section-head">
+      <h2 id="wTitle">Workers</h2>
+      <span class="sub" id="wSub"></span>
+      <div class="right" id="recovery"></div>
+    </div>
+    <div class="wgrid whead" aria-hidden="true">
+      <span>Status</span><span>Worker</span><span>Job slots</span><span class="num">Succeeded</span><span class="num">Failed</span><span class="num">Rescued</span><span>Uptime</span><span></span>
+    </div>
+    <div id="workers"><div class="empty">No workers have checked in yet. Each worker appears here within a second of starting.</div></div>
+    <div class="wnote" id="wNote" aria-live="polite"></div>
+  </section>
+
+  <div class="split">
+    <section class="section chart-sec" aria-labelledby="cTitle">
+      <div class="section-head"><h2 id="cTitle">Completed jobs per second</h2><span class="sub">Last 2 minutes</span><div class="right"><span>Peak <b id="peak">0</b></span></div></div>
+      <div class="chart-wrap" id="chartWrap">
+        <svg id="chart" role="img" aria-label="Completed jobs per second over the last two minutes"></svg>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+    </section>
+    <section class="section" aria-labelledby="qTitle">
+      <div class="section-head"><h2 id="qTitle">Queue</h2></div>
+      <ul class="kv">
+        <li><span class="what">Waiting for a worker<small>Redis stream backlog</small></span><span class="n" id="q-backlog">0</span></li>
+        <li><span class="what">Claimed by workers<small>Pending entries, reclaimable</small></span><span class="n" id="q-pending">0</span></li>
+        <li><span class="what">Scheduled to retry<small>Backoff timer set</small></span><span class="n" id="q-retry">0</span></li>
+        <li><span class="what">Dead letters<small>Out of attempts</small></span><span class="n" id="q-dead">0</span></li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="split-2">
+    <section class="section" aria-labelledby="aTitle">
+      <div class="section-head"><h2 id="aTitle">Activity</h2><span class="sub" id="aSub">Newest first</span></div>
+      <div class="scroll">
+        <table class="feed">
+          <colgroup><col style="width:100px"><col style="width:90px"><col style="width:64px"><col style="width:190px"><col style="width:170px"><col></colgroup>
+          <thead><tr><th>Time</th><th>Job</th><th>Type</th><th>Change</th><th>Worker</th><th>Detail</th></tr></thead>
+          <tbody id="feed"></tbody>
+        </table>
+        <div class="empty" id="feedEmpty">No job activity yet. Send test jobs from the top bar to see them move through the queue.</div>
+      </div>
+    </section>
+    <section class="section" aria-labelledby="dTitle">
+      <div class="section-head"><h2 id="dTitle">Dead letters</h2><span class="sub" id="dlSub"></span></div>
+      <div class="scroll">
+        <table class="dl">
+          <colgroup><col style="width:90px"><col style="width:60px"><col style="width:76px"><col><col style="width:136px"></colgroup>
+          <thead><tr><th>Job</th><th>Type</th><th>Attempts</th><th>Last error</th><th></th></tr></thead>
+          <tbody id="dl"></tbody>
+        </table>
+        <div class="empty" id="dlEmpty">No dead jobs. A job lands here after its final retry fails.</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<dialog id="tokenDialog">
+  <form method="dialog">
+    <h3>Kill token required</h3>
+    <p>This deployment protects the kill button. Enter the value of <span class="mono">KILL_TOKEN</span>.</p>
+    <input id="tokenInput" type="password" autocomplete="off" aria-label="Kill token">
+    <div class="actions">
+      <button class="btn" value="cancel" type="submit">Cancel</button>
+      <button class="btn btn-primary" value="ok" type="submit">Kill worker</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
 (() => {
-  const STATUSES = [
-    ["queued", "Queued"], ["running", "Running"], ["retry_scheduled", "Retry wait"],
-    ["succeeded", "Succeeded"], ["dead", "Dead"],
-  ];
+  const LABEL = { queued: "Queued", running: "Running", retry_scheduled: "Retrying", succeeded: "Succeeded", dead: "Dead" };
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const short = (id) => (id || "").slice(0, 8);
-  const time = (t) => new Date(t).toLocaleTimeString("en-US", { hour12: false });
+  const clock = (t) => new Date(t).toLocaleTimeString("en-GB", { hour12: false });
+  const label = (s) => LABEL[s] || s;
+  function ago(sec) {
+    sec = Math.max(0, Math.floor(sec));
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    if (sec < 86400) return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+    return `${Math.floor(sec / 86400)}d ${Math.floor((sec % 86400) / 3600)}h`;
+  }
 
-  $("counts").innerHTML = STATUSES.map(([k, label]) =>
-    `<div class="panel count" style="--c: var(--${k === "retry_scheduled" ? "retry" : k})">
-       <div class="label">${label}</div><div class="n" id="c-${k}">0</div></div>`).join("");
-
-  // ---- throughput sparkline -------------------------------------------
+  // ---- throughput chart ------------------------------------------------
+  const WINDOW = 120;
   const series = [];
-  let prev = null;
+  let prev = null, hoverX = null;
   function pushRate(st) {
     const done = (st.statuses.succeeded || 0) + (st.statuses.dead || 0);
     const at = new Date(st.at).getTime();
     if (prev && at > prev.at) {
-      const r = Math.max(0, (done - prev.done) / ((at - prev.at) / 1000));
-      series.push(r);
-      if (series.length > 120) series.shift();
-      $("rate").textContent = fmt(Math.round(r));
+      const v = Math.max(0, (done - prev.done) / ((at - prev.at) / 1000));
+      series.push({ at, v });
+      if (series.length > WINDOW) series.shift();
+      $("t-rate").textContent = fmt(Math.round(v));
     }
     prev = { done, at };
-    drawSpark();
+    drawChart();
   }
-  function drawSpark() {
-    const svg = $("spark"), w = 600, h = 70, n = series.length;
-    if (n < 2) { svg.innerHTML = ""; return; }
-    const max = Math.max(1, ...series);
-    const x = (i) => (i / 119) * w + (w - ((n - 1) / 119) * w);
-    const y = (v) => h - 4 - (v / max) * (h - 12);
-    let d = `M${x(0)},${y(series[0])}`;
-    for (let i = 1; i < n; i++) d += ` L${x(i)},${y(series[i])}`;
-    svg.innerHTML =
-      `<path d="${d} L${x(n - 1)},${h} L${x(0)},${h} Z" fill="#9ece6a18"/>` +
-      `<path d="${d}" fill="none" stroke="#9ece6a" stroke-width="1.6" vector-effect="non-scaling-stroke"/>` +
-      `<text x="4" y="12" fill="#7d8794" font-size="10" font-family="monospace">peak ${fmt(Math.round(max))}/s</text>`;
+  function niceMax(v) {
+    v = Math.max(4, v);
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 4, 6, 8, 10]) if (m * mag >= v) return m * mag;
+    return 10 * mag;
   }
+  function drawChart() {
+    const svg = $("chart");
+    const W = Math.max(280, svg.clientWidth), H = Math.max(160, svg.clientHeight);
+    const L = 44, R = 12, T = 10, B = 24;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const peak = series.reduce((m, p) => Math.max(m, p.v), 0);
+    $("peak").textContent = fmt(Math.round(peak));
+    const max = niceMax(peak);
+    const off = WINDOW - series.length;
+    const x = (i) => L + ((i + off) / (WINDOW - 1)) * (W - L - R);
+    const y = (v) => T + (1 - v / max) * (H - T - B);
+    let out = "";
+    for (const f of [0, 0.5, 1]) {
+      const yy = y(max * f);
+      out += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" stroke="${f === 0 ? "#333" : "#1c1c1c"}" stroke-width="1"/>`;
+      out += `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${fmt(max * f)}</text>`;
+    }
+    [["2 min ago", 0, "start"], ["1 min ago", 0.5, "middle"], ["Now", 1, "end"]].forEach(([t, f, a]) => {
+      out += `<text x="${L + f * (W - L - R)}" y="${H - 6}" text-anchor="${a}">${t}</text>`;
+    });
+    if (series.length > 1) {
+      let d = "";
+      series.forEach((p, i) => { d += `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`; });
+      out += `<path d="${d}L${x(series.length - 1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z" fill="rgba(57,135,229,.10)"/>`;
+      out += `<path d="${d}" fill="none" stroke="#3987e5" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    const tip = $("tip");
+    if (hoverX !== null && series.length) {
+      const i = Math.min(series.length - 1, Math.max(0, Math.round(((hoverX - L) / (W - L - R)) * (WINDOW - 1)) - off));
+      const p = series[i], px = x(i), py = y(p.v);
+      out += `<line x1="${px}" x2="${px}" y1="${T}" y2="${y(0)}" stroke="#444" stroke-width="1"/>`;
+      out += `<circle cx="${px}" cy="${py}" r="4.5" fill="#3987e5" stroke="#000" stroke-width="2"/>`;
+      tip.hidden = false;
+      tip.innerHTML = `<b>${fmt(Math.round(p.v))}</b> jobs/s <span class="muted">at ${clock(p.at)}</span>`;
+      const half = tip.offsetWidth / 2 + 4;
+      tip.style.left = `${Math.min(W - half, Math.max(half, px)) + 4}px`;
+    } else {
+      tip.hidden = true;
+    }
+    svg.innerHTML = out;
+    svg.setAttribute("aria-label", `Completed jobs per second over the last two minutes. Now ${fmt(Math.round(series.at(-1)?.v || 0))}, peak ${fmt(Math.round(peak))}.`);
+  }
+  $("chart").addEventListener("pointermove", (e) => { hoverX = e.clientX - $("chart").getBoundingClientRect().left; drawChart(); });
+  $("chart").addEventListener("pointerleave", () => { hoverX = null; drawChart(); });
+  new ResizeObserver(() => drawChart()).observe($("chartWrap"));
 
-  // ---- workers --------------------------------------------------------
-  const lastReclaimed = {};
-  const killedAt = {};
+  // ---- workers ---------------------------------------------------------
+  const rows = new Map();
+  const killedAt = {}, lastRescued = {}, rescuedUntil = {};
+  function makeRow(id) {
+    const el = document.createElement("div");
+    el.className = "wgrid wrow";
+    el.innerHTML = `
+      <div class="wstatus"><span class="dot"></span><span class="wstate"></span></div>
+      <div class="wid mono"></div>
+      <div class="wslots"><div class="slots"></div><span class="slot-n"></span></div>
+      <div class="num wnum w-ok"></div>
+      <div class="num wnum w-failed"></div>
+      <div class="num wnum rescued-cell"><span class="dot" data-s="rescued"></span><span class="w-rescued"></span></div>
+      <div class="wup"></div>
+      <div class="wact"><button class="btn btn-danger" type="button">Kill</button></div>`;
+    el.querySelector(".wid").textContent = id;
+    el.querySelector(".wid").title = id;
+    el.querySelector("button").dataset.kill = id;
+    return el;
+  }
   function renderWorkers(ws) {
-    if (!ws.length) { $("workers").innerHTML = `<div class="muted">no workers yet</div>`; return; }
-    $("workers").innerHTML = ws.map((w) => {
-      const pct = w.concurrency ? Math.min(100, (w.in_flight / w.concurrency) * 100) : 0;
-      const rescued = lastReclaimed[w.id] !== undefined && w.reclaimed > lastReclaimed[w.id];
-      lastReclaimed[w.id] = w.reclaimed;
-      // A killed worker keeps heartbeating-as-alive for a few seconds until
-      // its heartbeat goes stale; show the kill right away instead.
-      const dying = w.alive && killedAt[w.id];
-      const cls = ["worker", w.alive ? "" : "dead", dying ? "flash" : "", rescued ? "rescue" : ""].join(" ");
-      const badge = !w.alive ? `<span class="badge down">DEAD</span>`
-        : dying ? `<span class="badge down">KILLED</span>` : `<span class="badge alive">ALIVE</span>`;
-      const button = !w.alive ? `<button class="kill" disabled>EXITED</button>`
-        : dying ? `<button class="kill" disabled>EXIT(1) SENT · JOBS ORPHANED</button>`
-        : `<button class="kill" data-kill="${esc(w.id)}">KILL  ·  os.Exit(1)</button>`;
-      return `<div class="${cls}" id="w-${esc(w.id)}">
-        <div class="top"><span class="id" title="${esc(w.id)}">${esc(w.id)}</span>${badge}</div>
-        <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="stats">
-          <span><b>${w.in_flight}</b>/${w.concurrency} running</span>
-          <span><b>${fmt(w.succeeded)}</b> ok</span>
-          <span><b>${fmt(w.failed)}</b> failed</span>
-          <span><b>${fmt(w.reclaimed)}</b> rescued</span>
-        </div>
-        ${button}
-      </div>`;
-    }).join("");
+    const box = $("workers"), now = Date.now();
+    if (!ws.length) {
+      rows.clear();
+      box.innerHTML = `<div class="empty">No workers have checked in yet. Each worker appears here within a second of starting.</div>`;
+      $("wSub").textContent = "";
+      return;
+    }
+    box.querySelector(".empty")?.remove();
+    ws = [...ws].sort((a, b) => (b.alive - a.alive) || String(a.started_at).localeCompare(String(b.started_at)) || a.id.localeCompare(b.id));
+    const seen = new Set();
+    let up = 0;
+    ws.forEach((w, i) => {
+      seen.add(w.id);
+      let el = rows.get(w.id);
+      if (!el) { el = makeRow(w.id); rows.set(w.id, el); }
+      if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null);
+      if (!w.alive) delete killedAt[w.id];
+      const state = !w.alive ? "down" : killedAt[w.id] ? "killed" : "up";
+      if (state === "up") up++;
+      el.dataset.state = state;
+      el.querySelector(".wstatus .dot").dataset.s = state;
+      el.querySelector(".wstate").textContent = { up: "Running", killed: "Killed", down: "Stopped" }[state];
+
+      const slots = el.querySelector(".slots");
+      const cap = Math.max(1, w.concurrency || 1);
+      if (slots.children.length !== cap) slots.innerHTML = '<span class="slot"></span>'.repeat(cap);
+      const busy = state === "down" ? 0 : Math.min(cap, w.in_flight || 0);
+      [...slots.children].forEach((s, k) => { s.className = "slot" + (k < busy ? (state === "killed" ? " orphan" : " on") : ""); });
+      el.querySelector(".slot-n").textContent = state === "killed" ? `${busy} orphaned` : state === "down" ? "" : `${busy} of ${cap}`;
+
+      el.querySelector(".w-ok").textContent = fmt(w.succeeded);
+      el.querySelector(".w-failed").textContent = fmt(w.failed);
+      el.querySelector(".w-rescued").textContent = fmt(w.reclaimed);
+      if (lastRescued[w.id] !== undefined && w.reclaimed > lastRescued[w.id]) rescuedUntil[w.id] = now + 5000;
+      lastRescued[w.id] = w.reclaimed;
+      el.querySelector(".rescued-cell").classList.toggle("hot", (rescuedUntil[w.id] || 0) > now);
+
+      el.querySelector(".wup").textContent = state === "up" ? ago((now - Date.parse(w.started_at)) / 1000)
+        : state === "killed" ? "Exiting" : `Last seen ${ago((now - Date.parse(w.last_seen)) / 1000)} ago`;
+      const btn = el.querySelector("button");
+      if (btn.dataset.busy !== "1") {
+        btn.disabled = state !== "up";
+        btn.textContent = state === "up" ? "Kill" : state === "killed" ? "Killed" : "Kill";
+        btn.style.visibility = state === "down" ? "hidden" : "";
+      }
+    });
+    for (const [id, el] of rows) if (!seen.has(id)) { el.remove(); rows.delete(id); }
+    const down = ws.length - up;
+    $("wSub").textContent = `${up} running${down ? `, ${down} stopped` : ""}`;
   }
 
+  function askToken() {
+    const dlg = $("tokenDialog");
+    $("tokenInput").value = "";
+    dlg.returnValue = "";
+    dlg.showModal();
+    return new Promise((resolve) => dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok" ? $("tokenInput").value : null), { once: true }));
+  }
+  async function kill(id, token) {
+    return fetch(`/workers/${encodeURIComponent(id)}/kill${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST" });
+  }
   $("workers").addEventListener("click", async (e) => {
-    const id = e.target?.dataset?.kill;
-    if (!id) return;
-    e.target.disabled = true;
-    e.target.textContent = "KILLING…";
-    killedAt[id] = Date.now();
+    const btn = e.target.closest("button[data-kill]");
+    if (!btn || btn.disabled) return;
+    const id = btn.dataset.kill;
+    $("wNote").textContent = "";
+    btn.dataset.busy = "1";
+    btn.disabled = true;
+    btn.textContent = "Killing";
     let token = "";
     try { token = sessionStorage.getItem("relayKillToken") || ""; } catch {}
-    let res = await fetch(`/workers/${encodeURIComponent(id)}/kill${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST" });
-    if (res.status === 403) {
-      token = prompt("Kill token for this demo:") || "";
-      try { sessionStorage.setItem("relayKillToken", token); } catch {}
-      res = await fetch(`/workers/${encodeURIComponent(id)}/kill?token=${encodeURIComponent(token)}`, { method: "POST" });
+    try {
+      let res = await kill(id, token);
+      if (res.status === 403) {
+        token = await askToken();
+        if (token === null) { btn.dataset.busy = ""; btn.disabled = false; btn.textContent = "Kill"; return; }
+        try { sessionStorage.setItem("relayKillToken", token); } catch {}
+        res = await kill(id, token);
+      }
+      if (res.ok) {
+        killedAt[id] = Date.now();
+      } else {
+        $("wNote").textContent = res.status === 403 ? "The kill token was wrong. Try again with the value of KILL_TOKEN."
+          : res.status === 404 ? `Worker ${id} did not receive the kill. It may have already stopped.`
+          : `Kill failed with HTTP ${res.status}.`;
+      }
+    } catch {
+      $("wNote").textContent = "Kill request failed. Check that the API is reachable.";
     }
-    if (!res.ok) { delete killedAt[id]; e.target.disabled = false; e.target.textContent = "KILL FAILED"; }
+    btn.dataset.busy = "";
+    if (lastStats) renderWorkers(lastStats.workers || []);
   });
 
-  // ---- stats ----------------------------------------------------------
-  let lastDead = -1;
+  // ---- stats -----------------------------------------------------------
+  let lastStats = null, lastDead = -1;
   function onStats(st) {
-    for (const [k] of STATUSES) $("c-" + k).textContent = fmt(st.statuses[k]);
-    $("total").textContent = fmt(st.total);
+    lastStats = st;
+    for (const k of Object.keys(LABEL)) $("t-" + k).textContent = fmt(st.statuses[k]);
     const q = st.queue || {};
-    $("depth").innerHTML = [["backlog", "stream backlog"], ["pending", "held by workers"], ["retry", "retry set"], ["dead", "dead-letter"]]
-      .map(([k, label]) => `<div><div class="k">${label}</div><div class="v">${fmt(q[k])}</div></div>`).join("");
+    for (const k of ["backlog", "pending", "retry", "dead"]) $("q-" + k).textContent = fmt(q[k]);
     renderWorkers(st.workers || []);
     const r = st.recovery || {};
     $("recovery").innerHTML = r.reclaimed
-      ? `<span>jobs rescued from crashed workers <b>${fmt(r.reclaimed)}</b></span>
-         <span>avg gap <b>${r.avg_reclaim_secs.toFixed(1)}s</b></span>
-         <span>worst gap <b>${r.max_reclaim_secs.toFixed(1)}s</b></span>`
-      : `<span>no crashes yet: kill a worker above</span>`;
+      ? `<span>Jobs rescued <b>${fmt(r.reclaimed)}</b></span><span>Average handover <b>${r.avg_reclaim_secs.toFixed(1)} s</b></span><span>Slowest <b>${r.max_reclaim_secs.toFixed(1)} s</b></span>`
+      : `<span>No crashes yet. Kill a running worker to watch its jobs move to the others.</span>`;
     pushRate(st);
     if (st.statuses.dead !== lastDead) { lastDead = st.statuses.dead; loadDead(); }
   }
 
-  // ---- feed -----------------------------------------------------------
+  // ---- activity --------------------------------------------------------
   const feed = $("feed");
-  let droppedTotal = 0;
+  let skipped = 0;
   function onJobs(batch) {
-    if (batch.dropped) { droppedTotal += batch.dropped; $("dropped").textContent = `${fmt(droppedTotal)} not shown (rate-limited)`; }
+    if (batch.dropped) { skipped += batch.dropped; $("aSub").textContent = `Newest first, sampled: ${fmt(skipped)} events not shown`; }
+    if (!batch.events.length) return;
+    $("feedEmpty").hidden = true;
     const html = batch.events.map((e) => {
-      const tr = `${e.from ? `<span class="st ${esc(e.from)}">${esc(e.from)}</span> → ` : ""}<span class="st ${esc(e.to)}">${esc(e.to)}</span>`;
-      const who = e.worker_id ? ` <span class="muted">@${esc(e.worker_id)}</span>` : "";
-      const reclaim = e.from === "running" && e.to === "running";
-      const note = reclaim ? `rescued${e.error ? " · " + e.error.replace(/^reclaimed /, "") : ""}` : e.error;
-      const err = note ? ` <span class="${reclaim ? "rescue" : "err"}">${esc(note)}</span>` : "";
-      return `<div class="row new"><span class="t">${time(e.at)}</span><span class="jid">${short(e.job_id)}</span><span>${esc(e.type || "")}</span><span class="tr">${tr}${who}${err}</span></div>`;
+      const rescue = e.from === "running" && e.to === "running";
+      const change = rescue
+        ? `<span class="change"><span class="dot" data-s="rescued"></span>Rescued</span>`
+        : `<span class="change">${e.from ? `<span class="from">${esc(label(e.from))} →</span>` : ""}<span class="dot" data-s="${esc(e.to)}"></span>${esc(label(e.to))}</span>`;
+      const detail = rescue ? `From ${esc((e.error || "").replace(/^reclaimed from /, ""))}` : esc(e.error || "");
+      const errCls = !rescue && e.error ? " err" : "";
+      return `<tr class="fresh"><td class="mono muted">${clock(e.at)}</td><td class="mono">${short(e.job_id)}</td><td>${esc(e.type || "")}</td>
+        <td>${change}</td><td class="mono muted" title="${esc(e.worker_id)}">${esc(e.worker_id || "")}</td><td class="detail${errCls}" title="${detail}">${detail}</td></tr>`;
     }).reverse().join("");
     feed.insertAdjacentHTML("afterbegin", html);
-    while (feed.children.length > 80) feed.lastElementChild.remove();
+    while (feed.children.length > 100) feed.lastElementChild.remove();
   }
 
-  // ---- dead letters (R12) ---------------------------------------------
+  // ---- dead letters ----------------------------------------------------
   async function loadDead() {
     try {
-      const res = await fetch("/jobs?status=dead&limit=15");
+      const res = await fetch("/jobs?status=dead&limit=20");
       const { jobs } = await res.json();
-      $("dlCount").textContent = lastDead > 0 ? `${fmt(lastDead)} total` : "";
-      $("dl").innerHTML = jobs.length ? jobs.map((j) => `
-        <div class="item"><div><div>${short(j.id)} <span class="muted">${esc(j.type)} · ${j.attempts}/${j.max_attempts} attempts</span></div>
-          <div class="err" title="${esc(j.last_error)}">${esc(j.last_error)}</div></div>
-          <div class="actions"><button data-retry="${j.id}">retry</button><button data-del="${j.id}">delete</button></div></div>`).join("")
-        : `<div class="muted">none</div>`;
+      $("dlSub").textContent = lastDead > 0 ? `${fmt(lastDead)} total${lastDead > jobs.length ? `, newest ${jobs.length} shown` : ""}` : "";
+      $("dlEmpty").hidden = jobs.length > 0;
+      $("dl").innerHTML = jobs.map((j) => `
+        <tr><td class="mono" title="${esc(j.id)}">${short(j.id)}</td><td>${esc(j.type)}</td><td class="num">${j.attempts} of ${j.max_attempts}</td>
+          <td class="detail err" title="${esc(j.last_error)}">${esc(j.last_error)}</td>
+          <td><div class="actions"><button class="btn" type="button" data-retry="${esc(j.id)}">Retry</button><button class="btn btn-danger" type="button" data-del="${esc(j.id)}">Delete</button></div></td></tr>`).join("");
     } catch {}
   }
   $("dl").addEventListener("click", async (e) => {
-    const { retry, del } = e.target.dataset || {};
-    if (retry) await fetch(`/jobs/${retry}/retry`, { method: "POST" });
-    if (del) await fetch(`/jobs/${del}`, { method: "DELETE" });
-    if (retry || del) loadDead();
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const { retry, del } = btn.dataset;
+    btn.disabled = true;
+    if (retry) await fetch(`/jobs/${encodeURIComponent(retry)}/retry`, { method: "POST" });
+    if (del) await fetch(`/jobs/${encodeURIComponent(del)}`, { method: "DELETE" });
+    loadDead();
   });
 
-  // ---- bursts ---------------------------------------------------------
+  // ---- test traffic ----------------------------------------------------
   const BURSTS = {
     sleep: { type: "sleep", payload: { ms: 3000 } },
     fast: { type: "sleep", payload: { ms: 0 } },
     flaky: { type: "flaky", payload: { fail_rate: 0.3, ms: 50 } },
     doomed: { type: "flaky", payload: { fail_rate: 1 }, max_attempts: 3 },
   };
-  document.querySelector(".enq").addEventListener("click", async (e) => {
-    const kind = e.target.dataset?.burst;
-    if (!kind) return;
-    const n = Number(e.target.dataset.n);
-    const body = JSON.stringify(BURSTS[kind]);
-    $("enqNote").textContent = `sending ${n}…`;
+  $("send").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-burst]");
+    if (!btn) return;
+    const n = Number(btn.dataset.n), body = JSON.stringify(BURSTS[btn.dataset.burst]);
+    btn.disabled = true;
+    $("sendNote").textContent = `Sending ${fmt(n)}`;
     const t0 = performance.now();
     let ok = 0;
     for (let i = 0; i < n; i += 25) {
-      const batch = Array.from({ length: Math.min(25, n - i) }, () =>
-        fetch("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => r.ok && ok++));
-      await Promise.all(batch);
+      await Promise.all(Array.from({ length: Math.min(25, n - i) }, () =>
+        fetch("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => { if (r.ok) ok++; }).catch(() => {})));
     }
-    $("enqNote").textContent = `${ok}/${n} accepted (202) in ${Math.round(performance.now() - t0)} ms`;
+    const ms = Math.round(performance.now() - t0);
+    $("sendNote").textContent = ok === n ? `${fmt(n)} accepted in ${fmt(ms)} ms` : `${fmt(ok)} of ${fmt(n)} accepted`;
+    btn.disabled = false;
   });
 
-  // ---- SSE ------------------------------------------------------------
-  function connect() {
-    const es = new EventSource("/events");
-    es.addEventListener("open", () => { $("dot").classList.add("on"); $("connText").textContent = "live"; });
-    es.addEventListener("error", () => { $("dot").classList.remove("on"); $("connText").textContent = "reconnecting"; });
-    es.addEventListener("stats", (m) => onStats(JSON.parse(m.data)));
-    es.addEventListener("jobs", (m) => onJobs(JSON.parse(m.data)));
-  }
-  connect();
+  // ---- live connection -------------------------------------------------
+  function setConn(state, text) { $("connDot").dataset.s = state; $("connText").textContent = text; }
+  const es = new EventSource("/events");
+  es.addEventListener("open", () => setConn("live", "Live"));
+  es.addEventListener("error", () => setConn("reconnecting", "Reconnecting"));
+  es.addEventListener("stats", (m) => onStats(JSON.parse(m.data)));
+  es.addEventListener("jobs", (m) => onJobs(JSON.parse(m.data)));
 })();
 </script>
 </body>
