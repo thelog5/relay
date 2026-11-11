@@ -49,7 +49,7 @@ func run(log *slog.Logger) error {
 
 	// One blocking reader, one reclaimer, heartbeats, lease renewals and
 	// pub/sub, plus a connection per running job.
-	rdb, err := queue.Connect(ctx, config.String("REDIS_URL", "redis://localhost:6379/0"), concurrency*2+10)
+	rdb, err := queue.Connect(ctx, config.String("REDIS_URL", "redis://localhost:6379/0"), config.Int("WORKER_REDIS_POOL_SIZE", concurrency*2+10))
 	if err != nil {
 		return fmt.Errorf("redis: %w", err)
 	}

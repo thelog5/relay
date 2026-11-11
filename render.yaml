@@ -1,0 +1,65 @@
+# Render Blueprint for the public Relay demo. In the Render dashboard choose
+# New > Blueprint, connect this repo, and apply. Everything is on the free plan:
+#
+#   relay     web service: the api plus 3 supervised worker processes
+#             (cmd/allinone), so the dashboard's kill button still kills a
+#             real process and a replacement starts a second later
+#   relay-kv  Key Value (Valkey 8, Redis-compatible) for streams and pub/sub;
+#             free instances are in-memory only, and the reconciler re-queues
+#             unfinished jobs from Postgres if it restarts
+#   relay-db  Postgres 16; free databases expire 30 days after creation
+#
+# Details and free-tier caveats: infra/render/README.md
+services:
+  - type: web
+    name: relay
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerCommand: allinone
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: relay-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: relay-kv
+          property: connectionString
+      # Public-demo protections: rate limits, queue cap, webhook jobs off,
+      # sleep capped at 10s, finished jobs purged after 6 hours.
+      - key: DEMO_MODE
+        value: "true"
+      # Render's proxy appends the visitor's address to X-Forwarded-For.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: WORKERS
+        value: "3"
+      - key: WORKER_CONCURRENCY
+        value: "4"
+      # Small pools: four processes share one free database and one free
+      # Key Value instance.
+      - key: PG_MAX_CONNS
+        value: "8"
+      - key: REDIS_POOL_SIZE
+        value: "12"
+      - key: WORKER_REDIS_POOL_SIZE
+        value: "8"
+
+  - type: keyvalue
+    name: relay-kv
+    plan: free
+    # Streams must never be evicted: the default allkeys-lru would silently
+    # drop queued jobs under memory pressure.
+    maxmemoryPolicy: noeviction
+    # Empty list: reachable only from services in this Render account.
+    ipAllowList: []
+
+databases:
+  - name: relay-db
+    plan: free
+    databaseName: relay
+    user: relay
+    postgresMajorVersion: "16"
