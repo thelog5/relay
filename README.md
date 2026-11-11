@@ -4,7 +4,7 @@
 
 ![Relay dashboard: a worker is killed mid-job and the others pick up its jobs](docs/demo.gif)
 
-**Run it with `docker compose up`** · Built by [Logan Li](https://www.linkedin.com/in/logan-li-9089b7216/)
+**[Live demo](https://relayqueue.onrender.com)** · **Run it with `docker compose up`** · Built by [Logan Li](https://www.linkedin.com/in/logan-li-9089b7216/)
 
 ## What it is
 
@@ -137,8 +137,8 @@ Render
 ## Status
 
 Complete and load-tested on AWS; the EC2 instance was deleted after the run
-and `terraform apply` brings it back in a few minutes. The public demo runs
-on Render with Postgres on Neon's free plan, for about $7 a month
+and `terraform apply` brings it back in a few minutes. The [public demo](https://relayqueue.onrender.com)
+runs on Render with Postgres on Neon's free plan, for about $7 a month
 ([`render.yaml`](render.yaml), [guide](infra/render/README.md)).
 
 ## Run it locally
