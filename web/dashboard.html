@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relay dashboard</title>
+<meta name="description" content="Relay is a fault-tolerant job queue in Go. Live demo: send jobs, kill a worker mid-job, and watch the others take over its work.">
+<meta name="theme-color" content="#08080c">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
 <link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -58,23 +62,44 @@
   .chip[data-s] { background: color-mix(in srgb, var(--c) 14%, transparent); color: color-mix(in srgb, var(--c) 72%, white); }
   [data-s="queued"] { --c: var(--queued); }
   [data-s="running"], [data-s="up"] { --c: var(--running); }
-  [data-s="retry_scheduled"], [data-s="reconnecting"] { --c: var(--retrying); }
-  [data-s="succeeded"], [data-s="live"], [data-s="rescued"] { --c: var(--succeeded); }
+  [data-s="retry_scheduled"] { --c: var(--retrying); }
+  [data-s="succeeded"], [data-s="rescued"] { --c: var(--succeeded); }
   [data-s="dead"], [data-s="killed"] { --c: var(--dead); }
   [data-s="down"] { --c: var(--ink-3); }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c, var(--ink-3)); flex: none; }
-  .chip[data-s="live"] .dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--succeeded) 25%, transparent); }
 
   /* top bar */
   .bar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 16px 28px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: center; gap: 12px; }
-  .brand svg { flex: none; }
-  .brand b { display: block; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
-  .brand small { display: block; color: var(--ink-3); font-size: 12px; }
+  .brand { display: block; line-height: 0; }
+  .brand img { height: 32px; width: auto; }
   .grow { flex: 1; }
-  .send { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .send-label { color: var(--ink-3); font-size: 13px; margin-right: 4px; }
-  .send-note { color: var(--ink-3); font-size: 12px; min-width: 150px; }
+  .btn-gh { height: 40px; padding: 0 16px; gap: 9px; font-size: 14px; text-decoration: none; color: var(--ink); background: rgba(255, 255, 255, .03); }
+  .btn-gh svg { width: 18px; height: 18px; fill: currentColor; }
+
+  /* intro */
+  .intro { display: grid; gap: 14px; padding: 8px 2px 6px; max-width: 860px; }
+  .intro h1 { margin: 0; font-size: 40px; font-weight: 400; letter-spacing: -0.035em; line-height: 1.08; }
+  .intro p { margin: 0; color: var(--ink-2); font-size: 16px; line-height: 1.6; max-width: 72ch; }
+  .intro p strong { color: var(--ink); font-weight: 500; }
+  .stack { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .notice { padding: 10px 14px; border-radius: 10px; background: rgba(242, 184, 75, .1); color: #f6cd7c; font-size: 13px; }
+  .notice[hidden] { display: none; }
+
+  /* send test jobs */
+  .send-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 0 22px 10px; }
+  .send-head span { color: var(--ink-2); font-size: 13px; }
+  .send-note { color: var(--ink-3); font-size: 13px; }
+  .send-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 0 22px 18px; }
+  .send-btn { display: grid; gap: 3px; text-align: left; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .03); cursor: pointer; transition: border-color .15s, background-color .15s; }
+  .send-btn b { font-size: 15px; font-weight: 500; color: var(--ink); }
+  .send-btn span { font-size: 12px; color: var(--ink-3); }
+  .send-btn:hover:not(:disabled) { border-color: rgba(185, 173, 255, .55); background: rgba(185, 173, 255, .07); }
+  .send-btn:disabled { cursor: default; opacity: .5; }
+
+  /* footer */
+  .foot { max-width: 1480px; margin: 0 auto; padding: 8px 28px 40px; color: var(--ink-3); font-size: 13px; display: flex; justify-content: center; }
+  .foot a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line-2); }
+  .foot a:hover { color: var(--ink); border-color: var(--ink-3); }
 
   main { max-width: 1480px; margin: 0 auto; padding: 24px 28px 48px; display: grid; gap: 18px; }
   .card { background: linear-gradient(180deg, var(--card-top), var(--card) 120px); border: 1px solid var(--line); border-radius: var(--r-card); min-width: 0; }
@@ -152,6 +177,12 @@
   .rstats .n { font-size: 32px; font-weight: 300; letter-spacing: -0.035em; line-height: 1; }
   .rstats .n small { font-size: 14px; color: var(--ink-2); margin-left: 3px; letter-spacing: 0; }
   .rstats .k { color: var(--ink-2); font-size: 12px; margin-top: 6px; }
+  .handovers { margin: 0 0 18px; padding: 0; list-style: none; border-top: 1px solid rgba(255, 255, 255, .08); }
+  .handovers li { display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); font-size: 13px; }
+  .handovers .who { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .handovers .who b { color: var(--ink); font-weight: 500; }
+  .handovers .t { color: var(--ink-3); font-size: 12px; }
+  .handovers .none { display: block; color: var(--ink-3); border-bottom: 0; }
   .recovery .actions { margin-top: auto; display: grid; gap: 10px; }
   .recovery .actions .btn { height: 44px; width: 100%; font-size: 14px; }
   .recovery .actions .btn:not(.btn-primary) { background: rgba(8, 8, 12, .35); border-color: rgba(255, 255, 255, .16); }
@@ -186,6 +217,7 @@
     .totals { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 900px) {
+    .send-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .bar { padding: 14px 16px; }
     main { padding: 16px 16px 32px; gap: 14px; }
     .whead { display: none; }
@@ -202,7 +234,8 @@
   @media (max-width: 560px) {
     .totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .total .v { font-size: 32px; }
-    .send-note { min-width: 0; width: 100%; }
+    .intro h1 { font-size: 30px; }
+    .intro p { font-size: 15px; }
     .chart-big .v { font-size: 38px; }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -212,27 +245,23 @@
 </head>
 <body>
 <header class="bar">
-  <div class="brand">
-    <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true">
-      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cdc4ff"/><stop offset="1" stop-color="#8f7df7"/></linearGradient></defs>
-      <rect width="34" height="34" rx="10" fill="url(#lg)"/>
-      <path d="M9 13h13.5m0 0-3.5-3.5M22.5 13 19 16.5M25 21H11.5m0 0 3.5-3.5M11.5 21l3.5 3.5" fill="none" stroke="#16132a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <div><b>Relay</b><small>Fault-tolerant job queue</small></div>
-  </div>
-  <span class="chip" id="conn"><span class="dot"></span><span id="connText">Connecting</span></span>
+  <a class="brand" href="/" aria-label="Relay home"><img src="/static/logo.png" alt="Relay" width="141" height="32"></a>
   <span class="grow"></span>
-  <div class="send" id="send">
-    <span class="send-label">Send test jobs</span>
-    <button class="btn btn-sm" type="button" data-burst="sleep" data-n="60" title="60 jobs that each take 3 seconds">60 slow</button>
-    <button class="btn btn-sm" type="button" data-burst="fast" data-n="500" title="500 jobs that finish immediately">500 fast</button>
-    <button class="btn btn-sm" type="button" data-burst="flaky" data-n="300" title="300 jobs that fail 30% of the time and retry">300 flaky</button>
-    <button class="btn btn-sm" type="button" data-burst="doomed" data-n="5" title="5 jobs that always fail and end up in dead letters">5 failing</button>
-    <span class="send-note" id="sendNote" aria-live="polite"></span>
-  </div>
+  <a class="btn btn-gh" href="https://github.com/thelog5/relay" target="_blank" rel="noopener">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    View on GitHub
+  </a>
 </header>
 
 <main>
+  <section class="intro" aria-labelledby="introTitle">
+    <h1 id="introTitle">Background jobs that survive crashes</h1>
+    <p>Relay is a job queue written in Go. Apps hand it slow work, like sending emails or calling other services. It saves each job in Postgres, queues it in Redis, and separate worker processes run it. Failed jobs retry with growing waits, and jobs that keep failing are set aside as dead letters.</p>
+    <p><strong>Everything on this page is live.</strong> Send test jobs, then kill a worker while it is busy: its unfinished jobs move to the other workers within seconds, and none are lost.</p>
+    <div class="stack"><span class="chip">Go</span><span class="chip">Redis Streams</span><span class="chip">Postgres</span><span class="chip">At-least-once delivery</span></div>
+    <div class="notice" id="notice" role="status" hidden>Lost the live connection to the server. Reconnecting.</div>
+  </section>
+
   <section class="card totals" aria-label="Jobs by status">
     <div class="total"><div class="k"><span class="dot" data-s="queued"></span>Queued</div><div class="v" id="t-queued">0</div></div>
     <div class="total"><div class="k"><span class="dot" data-s="running"></span>Running</div><div class="v" id="t-running">0</div></div>
@@ -259,6 +288,13 @@
   <div class="split">
     <section class="card chart-card" aria-labelledby="cTitle">
       <div class="card-head"><h2 id="cTitle">Completed jobs per second</h2><div class="right"><span class="chip">Last 2 min</span><span class="chip">Peak <span id="peak">0</span></span></div></div>
+      <div class="send-head"><span>Send test jobs</span><span class="send-note" id="sendNote" aria-live="polite"></span></div>
+      <div class="send-grid" id="send">
+        <button class="send-btn" type="button" data-burst="sleep" data-n="60"><b>60 slow jobs</b><span>3 seconds each</span></button>
+        <button class="send-btn" type="button" data-burst="fast" data-n="500"><b>500 fast jobs</b><span>Finish instantly</span></button>
+        <button class="send-btn" type="button" data-burst="flaky" data-n="300"><b>300 flaky jobs</b><span>30% fail, then retry</span></button>
+        <button class="send-btn" type="button" data-burst="doomed" data-n="5"><b>5 failing jobs</b><span>End up in dead letters</span></button>
+      </div>
       <div class="chart-big"><span class="v" id="rateBig">0</span><span class="u">jobs/s now</span></div>
       <div class="chart-wrap" id="chartWrap">
         <svg id="chart" role="img" aria-label="Completed jobs per second over the last two minutes"></svg>
@@ -277,6 +313,7 @@
       <h2 id="rTitle">Kill a worker mid-job</h2>
       <p>Its unfinished jobs move to the other workers within seconds, and none are lost.</p>
       <div class="rstats" id="rstats"></div>
+      <ul class="handovers" id="handovers" aria-label="Recent handovers"><li class="none">No handovers yet. They appear here when a worker is killed mid-job.</li></ul>
       <div class="actions">
         <button class="btn btn-primary" type="button" id="killRandom">Kill a random worker</button>
         <button class="btn" type="button" id="sendSlow">Send 60 slow jobs first</button>
@@ -293,7 +330,7 @@
           <thead><tr><th>Time</th><th>Job</th><th>Type</th><th>Change</th><th>Worker</th><th>Detail</th></tr></thead>
           <tbody id="feed"></tbody>
         </table>
-        <div class="empty" id="feedEmpty">No job activity yet. Send test jobs from the top bar to watch them move through the queue.</div>
+        <div class="empty" id="feedEmpty">No job activity yet. Send test jobs from the chart panel to watch them move through the queue.</div>
       </div>
     </section>
     <section class="card" aria-labelledby="dTitle">
@@ -309,6 +346,10 @@
     </section>
   </div>
 </main>
+
+<footer class="foot">
+  <span>Made by <a href="https://github.com/thelog5" target="_blank" rel="noopener">the log</a> ✝</span>
+</footer>
 
 <dialog id="tokenDialog">
   <form method="dialog">
@@ -603,7 +644,17 @@
     }).reverse().join("");
     feed.insertAdjacentHTML("afterbegin", html);
     while (feed.children.length > 100) feed.lastElementChild.remove();
+    const moved = batch.events.filter((e) => e.from === "running" && e.to === "running");
+    if (moved.length) {
+      handovers.unshift(...moved.reverse());
+      handovers.length = Math.min(handovers.length, 4);
+      const tail = (id) => esc((id || "").split("-").pop());
+      $("handovers").innerHTML = handovers.map((e) => `<li><span class="mono">${short(e.job_id)}</span>
+        <span class="who" title="${esc(e.error)} to ${esc(e.worker_id)}">from <b>${tail((e.error || "").replace(/^reclaimed from /, ""))}</b> to <b>${tail(e.worker_id)}</b></span>
+        <span class="t">${clock(e.at)}</span></li>`).join("");
+    }
   }
+  const handovers = [];
 
   // ---- dead letters ----------------------------------------------------
   async function loadDead() {
@@ -660,10 +711,9 @@
   $("sendSlow").addEventListener("click", (e) => burst("sleep", 60, e.currentTarget));
 
   // ---- live connection -------------------------------------------------
-  function setConn(state, text) { $("conn").dataset.s = state; $("connText").textContent = text; }
   const es = new EventSource("/events");
-  es.addEventListener("open", () => setConn("live", "Live"));
-  es.addEventListener("error", () => setConn("reconnecting", "Reconnecting"));
+  es.addEventListener("open", () => { $("notice").hidden = true; });
+  es.addEventListener("error", () => { $("notice").hidden = false; });
   es.addEventListener("stats", (m) => onStats(JSON.parse(m.data)));
   es.addEventListener("jobs", (m) => onJobs(JSON.parse(m.data)));
 })();

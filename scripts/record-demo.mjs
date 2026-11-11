@@ -75,6 +75,8 @@ await cdp("Emulation.setDeviceMetricsOverride", { width: WIDTH, height: HEIGHT, 
 await cdp("Page.enable");
 await cdp("Page.navigate", { url: BASE + "/" });
 await sleep(2500); // SSE connects, workers render
+// Start the take at the status totals: the intro text is not the demo.
+await evaluate(`document.querySelector(".totals").scrollIntoView({ block: "start" }); window.scrollBy(0, -16)`);
 
 let frame = 0;
 let recording = true;

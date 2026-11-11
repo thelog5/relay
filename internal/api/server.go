@@ -16,6 +16,7 @@ import (
 	"github.com/thelog5/relay/internal/metrics"
 	"github.com/thelog5/relay/internal/queue"
 	"github.com/thelog5/relay/internal/store"
+	"github.com/thelog5/relay/web"
 )
 
 // Config tunes the API server.
@@ -90,7 +91,21 @@ func (s *Server) Handler() http.Handler {
 	// latency histogram, and /metrics should not measure itself.
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.Handle("GET /metrics", metrics.Handler())
+	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheFor(24*time.Hour, http.FileServerFS(web.Static))))
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeFileFS(w, r, web.Static, "favicon-32.png")
+	})
 	return mux
+}
+
+// cacheFor lets browsers keep static assets for d.
+func cacheFor(d time.Duration, h http.Handler) http.Handler {
+	v := "public, max-age=" + strconv.Itoa(int(d.Seconds()))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", v)
+		h.ServeHTTP(w, r)
+	})
 }
 
 // statusRecorder captures the response code for metrics.
