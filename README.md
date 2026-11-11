@@ -189,7 +189,7 @@ Prometheus <http://localhost:9090>.
 |----------|---------|---------|
 | `DATABASE_URL` | `postgres://relay:relay@localhost:5432/relay?sslmode=disable` | api, worker |
 | `REDIS_URL` | `redis://localhost:6379/0` | api, worker |
-| `HTTP_ADDR` | `:8080` | api |
+| `HTTP_ADDR` | `:$PORT` if `PORT` is set, else `:8080` | api |
 | `KILL_TOKEN` | empty (kill endpoint open) | api |
 | `SCHEDULER_INTERVAL` | `500ms` | api |
 | `RECONCILE_INTERVAL` / `RECONCILE_GRACE` | `30s` / `30s` | api |
@@ -200,6 +200,13 @@ Prometheus <http://localhost:9090>.
 | `JOB_TIMEOUT` | `60s` | worker |
 | `WORKER_ID` | hostname + random suffix | worker |
 | `RELAY_KEY_PREFIX` | `relay` | api, worker |
+| `DEMO_MODE` | off; turns on the public-demo limits and 6h retention | api |
+| `RATE_LIMIT_JOBS_PER_MIN` / `RATE_LIMIT_JOBS_BURST` / `RATE_LIMIT_KILLS_PER_MIN` | off (demo: 1,200 / 600 / 12 per address) | api |
+| `MAX_UNFINISHED_JOBS` / `MAX_SLEEP_MS` / `DISABLED_JOB_TYPES` | off (demo: 20,000 / 10,000 / `webhook`) | api |
+| `TRUST_PROXY_HOPS` | `0`; `1` behind a platform proxy such as Render's | api |
+| `RETENTION` | off (demo: `6h`); purges finished jobs older than this | api |
+| `WORKERS` | `3` worker processes | allinone |
+| `WORKER_REDIS_POOL_SIZE` | concurrency × 2 + 10 | worker |
 
 ## Tests
 
@@ -216,7 +223,15 @@ Prometheus <http://localhost:9090>.
 
 ## Deploy
 
-Terraform puts the whole compose stack on one EC2 instance (`infra/terraform`):
+**Free live demo on Render.** `render.yaml` is a Render Blueprint: New >
+Blueprint, pick this repo, apply. It runs `allinone` (the api plus three
+supervised worker processes in one container) on a free web service, with
+free Key Value and Postgres and the public-demo limits on. Steps and
+free-tier caveats (it sleeps after 15 idle minutes; the free database
+expires after 30 days) are in [`infra/render/README.md`](infra/render/README.md).
+
+**EC2 for the load-test numbers.** Terraform puts the whole compose stack
+on one EC2 instance (`infra/terraform`):
 
 ```bash
 cd infra/terraform
@@ -236,8 +251,16 @@ numbers are recorded. A Fly.io fallback lives in `infra/fly`.
 - **Postgres is written on every transition** (~4 writes per job), which
   caps throughput but gives a full audit trail. Batching event inserts is
   the next lever.
-- **The reconciler scans the stream** when it finds stale `queued` jobs. A
-  transactional outbox would close the insert/XADD gap without scanning.
+- **The reconciler scans the stream** when it finds stale unfinished jobs.
+  A transactional outbox would close the insert/XADD gap without scanning.
+- **The public demo is protected, not hardened.** `DEMO_MODE` adds per-address
+  rate limits, a queue cap, a sleep cap, retention, and turns webhook jobs
+  off. A real launch would also need authentication and per-tenant
+  authorization on the API and dashboard, HTTPS everywhere (Render
+  terminates it; the EC2 setup does not), webhook egress through an
+  allow-listed proxy, managed Postgres and Redis with replicas and backups,
+  alerts on queue depth, dead letters and worker count, and more than one
+  host.
 - Not built, per the PRD: priorities, scheduled or cron jobs, authentication,
   multi-region, Kubernetes, gRPC.
 
@@ -246,15 +269,17 @@ numbers are recorded. A Fly.io fallback lives in `infra/fly`.
 ```
 cmd/api           HTTP server, retry scheduler, reconciler
 cmd/worker        worker process
+cmd/allinone      api + supervised workers in one container (Render free tier)
 cmd/relayctl      acceptance checks: soak, crash, chaos
 internal/jobs     job model, lifecycle, backoff, handlers
 internal/queue    Redis streams, retry set, dead letters, pub/sub, worker registry
 internal/store    Postgres store and migrations
 internal/worker   worker runtime: fetch/reclaim loop, leases, fencing
 internal/api      HTTP handlers, SSE hub, stats
-internal/scheduler retry promotion and reconciliation
+internal/scheduler retry promotion, reconciliation, retention purge
+internal/supervise child-process supervisor used by cmd/allinone
 internal/e2e      crash tests against real worker processes
 web/dashboard.html live dashboard (embedded into the api binary)
 loadtest/         k6 scripts
-infra/            Terraform, Fly.io, Prometheus, Grafana
+infra/            Terraform, Render guide, Fly.io, Prometheus, Grafana
 ```
