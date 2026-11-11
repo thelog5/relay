@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,5 +204,29 @@ func TestPurgeDeletesOnlyOldFinishedJobs(t *testing.T) {
 	}
 	if left, _ := q.Client().XLen(ctx, q.Keys.Dead).Result(); left != 0 {
 		t.Fatalf("dead-letter stream still has %d entries", left)
+	}
+}
+
+// With the api idle (no unfinished jobs, so nothing to repair) the reconciler
+// leaves Postgres alone, and it picks up where it left off once active.
+func TestReconcileSkipsPassesWhileIdle(t *testing.T) {
+	st, q := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	orphan := uuid.NewString()
+	st.CreateJob(ctx, orphan, "sleep", json.RawMessage(`{"ms":1}`), 5)
+
+	var idle atomic.Bool
+	idle.Store(true)
+	r := &Reconciler{Store: st, Queue: q, Interval: 20 * time.Millisecond, Grace: time.Millisecond, Idle: idle.Load}
+	go r.Run(ctx)
+	time.Sleep(150 * time.Millisecond)
+	if msgs, _ := q.Read(ctx, "w", 10, 20*time.Millisecond); len(msgs) != 0 {
+		t.Fatalf("reconciled while idle: %d", len(msgs))
+	}
+	idle.Store(false)
+	msgs, _ := q.Read(ctx, "w", 10, time.Second)
+	if len(msgs) != 1 || msgs[0].JobID != orphan {
+		t.Fatalf("after waking: %+v", msgs)
 	}
 }

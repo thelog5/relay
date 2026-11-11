@@ -11,7 +11,7 @@ import (
 
 // Purger deletes finished jobs (succeeded or dead) once they are older than
 // Keep, along with their events and dead-letter stream entries, so a demo on
-// a small hosted database (Render's free Postgres is 1 GB) never fills it.
+// a small hosted database (such as a free Neon project) never fills it.
 // Unfinished jobs are never purged.
 type Purger struct {
 	Store    *store.Store
@@ -19,7 +19,11 @@ type Purger struct {
 	Keep     time.Duration
 	Interval time.Duration // default 10m
 	Batch    int           // default 5000 rows per delete
-	Logger   *slog.Logger
+	// Idle, if set, holds purges back while it returns true, so a
+	// serverless database can sleep; a held-back purge runs at the first
+	// minute that is not idle.
+	Idle   func() bool
+	Logger *slog.Logger
 }
 
 // Run purges every Interval until ctx is cancelled.
@@ -30,13 +34,23 @@ func (p *Purger) Run(ctx context.Context) {
 	if p.Logger == nil {
 		p.Logger = slog.Default()
 	}
-	t := time.NewTicker(p.Interval)
+	// With Idle set, look every minute so a short visit still gets a purge
+	// that came due while the api was idle.
+	check := p.Interval
+	if p.Idle != nil && check > time.Minute {
+		check = time.Minute
+	}
+	every := int(p.Interval / check) // ticks between purges
+	t := time.NewTicker(check)
 	defer t.Stop()
-	for {
-		if n, err := p.Once(ctx, time.Now()); err != nil && ctx.Err() == nil {
-			p.Logger.Warn("purge failed", "err", err)
-		} else if n > 0 {
-			p.Logger.Info("purged finished jobs", "count", n, "older_than", p.Keep)
+	for ticks := every; ; ticks++ {
+		if ticks >= every && (p.Idle == nil || !p.Idle()) {
+			ticks = 0
+			if n, err := p.Once(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				p.Logger.Warn("purge failed", "err", err)
+			} else if n > 0 {
+				p.Logger.Info("purged finished jobs", "count", n, "older_than", p.Keep)
+			}
 		}
 		select {
 		case <-ctx.Done():

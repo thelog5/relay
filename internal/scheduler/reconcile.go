@@ -30,7 +30,11 @@ type Reconciler struct {
 	Interval time.Duration // default 30s
 	Grace    time.Duration // default 30s; must exceed the enqueue round trip
 	Batch    int           // default 1000
-	Logger   *slog.Logger
+	// Idle, if set, skips passes while it returns true. The api passes its
+	// own Idle, which is only true while Postgres holds no unfinished jobs,
+	// so a skipped pass would have found nothing.
+	Idle   func() bool
+	Logger *slog.Logger
 }
 
 // Run reconciles until ctx is cancelled, starting immediately so an api that
@@ -45,10 +49,12 @@ func (r *Reconciler) Run(ctx context.Context) {
 	t := time.NewTicker(r.Interval)
 	defer t.Stop()
 	for {
-		if n, err := r.Once(ctx, time.Now()); err != nil && ctx.Err() == nil {
-			r.Logger.Warn("reconcile failed", "err", err)
-		} else if n > 0 {
-			r.Logger.Warn("re-enqueued jobs that were missing from redis", "count", n)
+		if r.Idle == nil || !r.Idle() {
+			if n, err := r.Once(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				r.Logger.Warn("reconcile failed", "err", err)
+			} else if n > 0 {
+				r.Logger.Warn("re-enqueued jobs that were missing from redis", "count", n)
+			}
 		}
 		select {
 		case <-ctx.Done():
