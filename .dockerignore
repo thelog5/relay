@@ -4,3 +4,8 @@ infra/**/.terraform
 loadtest/results
 *.md
 !README.md
+# Never send secrets into the build context.
+.env
+.env.*
+*.tfvars
+**/terraform.tfstate*
