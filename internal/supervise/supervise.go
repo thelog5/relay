@@ -8,6 +8,7 @@ package supervise
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -80,7 +81,10 @@ func (s *Supervisor) keep(ctx context.Context, cancel context.CancelCauseFunc, p
 			return
 		}
 		if !p.Restart {
-			cancel(fmt.Errorf("%s exited: %v", p.Name, err))
+			if err == nil {
+				err = errors.New("exit status 0")
+			}
+			cancel(fmt.Errorf("%s exited: %w", p.Name, err))
 			return
 		}
 		s.Logger.Warn("process exited; restarting", "name", p.Name, "err", err, "delay", s.RestartDelay)
