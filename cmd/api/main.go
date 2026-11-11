@@ -59,9 +59,16 @@ func run(log *slog.Logger) error {
 			"kills_per_min", limits.KillsPerMinute, "max_unfinished", limits.MaxUnfinished,
 			"disabled_types", limits.DisabledTypes, "max_sleep_ms", limits.MaxSleepMS, "proxy_hops", limits.ProxyHops)
 	}
+	// IDLE_AFTER lets a serverless Postgres (Neon) scale to zero: once
+	// nothing has happened for this long, the api stops querying it.
+	idleAfter := config.Duration("IDLE_AFTER", 0)
+	if idleAfter > 0 {
+		log.Info("idle mode on: Postgres is left alone when nothing is happening", "idle_after", idleAfter)
+	}
 	srv := api.New(api.Config{
 		KillToken: config.String("KILL_TOKEN", ""),
 		Limits:    limits,
+		IdleAfter: idleAfter,
 		Logger:    log,
 	}, st, q, jobs.DefaultRegistry())
 
@@ -77,6 +84,7 @@ func run(log *slog.Logger) error {
 		Queue:    q,
 		Interval: config.Duration("RECONCILE_INTERVAL", 30*time.Second),
 		Grace:    config.Duration("RECONCILE_GRACE", 30*time.Second),
+		Idle:     srv.Idle,
 		Logger:   log.With("component", "reconciler"),
 	}).Run(ctx)
 	// RETENTION deletes finished jobs older than this (off by default; the
@@ -87,7 +95,7 @@ func run(log *slog.Logger) error {
 	}
 	if keep := config.Duration("RETENTION", keepDefault); keep > 0 {
 		log.Info("purging finished jobs", "older_than", keep)
-		go (&scheduler.Purger{Store: st, Queue: q, Keep: keep, Logger: log.With("component", "purger")}).Run(ctx)
+		go (&scheduler.Purger{Store: st, Queue: q, Keep: keep, Idle: srv.Idle, Logger: log.With("component", "purger")}).Run(ctx)
 	}
 	go srv.RunHub(ctx)
 
