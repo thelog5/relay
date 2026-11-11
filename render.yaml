@@ -1,5 +1,7 @@
-# Render Blueprint for the public Relay demo. In the Render dashboard choose
-# New > Blueprint, connect this repo, and apply. About $13 a month:
+# Render Blueprint for the public Relay demo, with Postgres on Neon's free
+# plan. In the Render dashboard choose New > Blueprint, connect this repo,
+# paste the Neon connection string when asked for DATABASE_URL, and apply.
+# About $7 a month:
 #
 #   relayqueue  web service, Starter ($7): the api plus 3 supervised worker
 #               processes (cmd/allinone), so the dashboard's kill button still
@@ -9,28 +11,37 @@
 #               and the reconciler re-queues unfinished jobs from Postgres if
 #               it restarts. Finished jobs are deleted from the stream, so the
 #               25 MB limit holds well past the demo's 20,000-job queue cap.
-#   relay-db    Postgres 16, Basic-256mb ($6): no 30-day expiry, point-in-time
-#               recovery
+#   Postgres    Neon, free (not created by this file). IDLE_AFTER stops the
+#               api querying it when nothing is happening, so Neon can scale
+#               to zero and the free 100 compute-hours a month last.
 #
-# Details, custom domain and upgrades: infra/render/README.md
+# Neon setup, custom domain and upgrades: infra/render/README.md
 services:
   - type: web
     name: relayqueue
     runtime: docker
     plan: starter
+    # Same region as the Neon project (AWS US West 2, Oregon): every job
+    # makes four Postgres writes, so the round trip matters.
+    region: oregon
     dockerfilePath: ./Dockerfile
     dockerCommand: allinone
     healthCheckPath: /healthz
     envVars:
+      # Neon's direct connection string (pooling off), from the Neon console.
+      # Render asks for it when the Blueprint is first applied; it is never
+      # stored in this repo.
       - key: DATABASE_URL
-        fromDatabase:
-          name: relay-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
           name: relay-kv
           property: connectionString
+      # Stop querying Postgres after 2 quiet minutes so Neon can sleep; the
+      # next visitor or job wakes it in well under a second.
+      - key: IDLE_AFTER
+        value: "2m"
       # Public-demo protections: rate limits, queue cap, webhook jobs off,
       # sleep capped at 10s, finished jobs purged after 6 hours.
       - key: DEMO_MODE
@@ -43,7 +54,7 @@ services:
       - key: WORKER_CONCURRENCY
         value: "4"
       # Small pools: four processes share one database and one Key Value
-      # instance (Basic-256mb allows 100 connections; free Key Value 50).
+      # instance (free Key Value allows 50 connections).
       - key: PG_MAX_CONNS
         value: "8"
       - key: REDIS_POOL_SIZE
@@ -54,15 +65,9 @@ services:
   - type: keyvalue
     name: relay-kv
     plan: free
+    region: oregon
     # Streams must never be evicted: the default allkeys-lru would silently
     # drop queued jobs under memory pressure.
     maxmemoryPolicy: noeviction
     # Empty list: reachable only from services in this Render account.
     ipAllowList: []
-
-databases:
-  - name: relay-db
-    plan: basic-256mb
-    databaseName: relay
-    user: relay
-    postgresMajorVersion: "16"
