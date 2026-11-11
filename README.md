@@ -137,10 +137,9 @@ Render
 ## Status
 
 Complete and load-tested on AWS; the EC2 instance was deleted after the run
-and `terraform apply` brings it back in a few minutes. A public demo deploys
-to Render's free plan from [`render.yaml`](render.yaml)
-([guide](infra/render/README.md)): it sleeps after 15 quiet minutes, so the
-first visit after that takes about a minute.
+and `terraform apply` brings it back in a few minutes. The public demo runs
+on Render from [`render.yaml`](render.yaml) for about $13 a month
+([guide](infra/render/README.md)).
 
 ## Run it locally
 
@@ -309,9 +308,10 @@ to `dead` rather than running again.
 
 **Public demo on Render.** [`render.yaml`](render.yaml) is a Render
 Blueprint: New > Blueprint, pick this repo, apply. It runs `allinone` (the
-api plus three supervised worker processes in one container) on a free web
-service, with free Key Value and Postgres and the public-demo limits on.
-Steps and free-tier caveats are in [infra/render/README.md](infra/render/README.md).
+api plus three supervised worker processes in one container) on a Starter
+web service, with Basic-256mb Postgres, free Key Value and the public-demo
+limits on. Steps, costs and the custom domain setup are in
+[infra/render/README.md](infra/render/README.md).
 
 **AWS EC2 for load tests.** Terraform puts the whole compose stack on one EC2
 instance, reachable only from your IP:

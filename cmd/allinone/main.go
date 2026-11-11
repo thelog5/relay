@@ -1,5 +1,5 @@
 // Command allinone runs the Relay api and WORKERS workers in one container,
-// for hosts that run one process per service (Render's free web service).
+// for hosts that run one process per service (a Render web service).
 // Every worker is a separate OS process, so killing one from the dashboard
 // still orphans its jobs for real; the supervisor starts a replacement a
 // second later, the way docker compose's restart policy does locally.
