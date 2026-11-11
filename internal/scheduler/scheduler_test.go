@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/thelog5/relay/internal/jobs"
 	"github.com/thelog5/relay/internal/queue"
@@ -159,5 +160,48 @@ func TestReconcileRecoversJobsAfterRedisDataLoss(t *testing.T) {
 	}
 	if len(msgs) != 2 || !got[lostRunning] || !got[lostRetry] {
 		t.Fatalf("re-enqueued %v, want only the two lost jobs", got)
+	}
+}
+
+func TestPurgeDeletesOnlyOldFinishedJobs(t *testing.T) {
+	st, q := setup(t)
+	ctx := context.Background()
+	mk := func(path ...jobs.Status) string {
+		id := uuid.NewString()
+		if _, err := st.CreateJob(ctx, id, "sleep", json.RawMessage(`{"ms":1}`), 5); err != nil {
+			t.Fatal(err)
+		}
+		from := jobs.StatusQueued
+		for _, to := range path {
+			if _, _, err := st.Transition(ctx, id, store.TransitionOpts{From: []jobs.Status{from}, To: to, WorkerID: "w"}); err != nil {
+				t.Fatal(err)
+			}
+			from = to
+		}
+		return id
+	}
+	done := mk(jobs.StatusRunning, jobs.StatusSucceeded)
+	dead := mk(jobs.StatusDead)
+	waiting := mk()
+	running := mk(jobs.StatusRunning)
+	q.Client().XAdd(ctx, &redis.XAddArgs{Stream: q.Keys.Dead, Values: map[string]any{"job_id": dead, "error": "boom"}})
+
+	p := &Purger{Store: st, Queue: q, Keep: time.Hour, Batch: 1}
+	if n, err := p.Once(ctx, time.Now()); err != nil || n != 0 {
+		t.Fatalf("purged %d fresh jobs (%v)", n, err)
+	}
+	// Batch 1 forces the loop to run more than once.
+	n, err := p.Once(ctx, time.Now().Add(2*time.Hour))
+	if err != nil || n != 2 {
+		t.Fatalf("purge: %d %v", n, err)
+	}
+	for id, wantGone := range map[string]bool{done: true, dead: true, waiting: false, running: false} {
+		_, err := st.GetJob(ctx, id)
+		if gone := err != nil; gone != wantGone {
+			t.Fatalf("job %s: gone=%v want %v (%v)", id, gone, wantGone, err)
+		}
+	}
+	if left, _ := q.Client().XLen(ctx, q.Keys.Dead).Result(); left != 0 {
+		t.Fatalf("dead-letter stream still has %d entries", left)
 	}
 }

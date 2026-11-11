@@ -342,3 +342,9 @@ func (q *Queue) PruneConsumers(ctx context.Context, idle time.Duration) (int, er
 	}
 	return n, nil
 }
+
+// TrimDead drops dead-letter stream entries older than before. Stream IDs
+// begin with a millisecond timestamp, so MINID trims by age.
+func (q *Queue) TrimDead(ctx context.Context, before time.Time) (int64, error) {
+	return q.rdb.XTrimMinID(ctx, q.Keys.Dead, strconv.FormatInt(before.UnixMilli(), 10)).Result()
+}

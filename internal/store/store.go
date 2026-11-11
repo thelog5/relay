@@ -321,6 +321,19 @@ func (s *Store) StaleUnfinished(ctx context.Context, cutoff time.Time, limit int
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
+// PurgeFinished deletes up to limit succeeded or dead jobs whose last change
+// is older than before, with their events (ON DELETE CASCADE). It keeps a
+// small hosted database from filling up; unfinished jobs are never touched.
+func (s *Store) PurgeFinished(ctx context.Context, before time.Time, limit int) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM jobs WHERE id IN (
+		SELECT id FROM jobs WHERE status IN ('succeeded', 'dead') AND updated_at < $1
+		ORDER BY updated_at LIMIT $2)`, before, limit)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // DeleteJob removes a job and its events (R12). Only terminal jobs can be
 // deleted so a running job never disappears from under a worker.
 func (s *Store) DeleteJob(ctx context.Context, id string) error {

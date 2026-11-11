@@ -79,6 +79,16 @@ func run(log *slog.Logger) error {
 		Grace:    config.Duration("RECONCILE_GRACE", 30*time.Second),
 		Logger:   log.With("component", "reconciler"),
 	}).Run(ctx)
+	// RETENTION deletes finished jobs older than this (off by default; the
+	// public demo keeps 6 hours so a 1 GB hosted database never fills).
+	keepDefault := time.Duration(0)
+	if config.Bool("DEMO_MODE", false) {
+		keepDefault = 6 * time.Hour
+	}
+	if keep := config.Duration("RETENTION", keepDefault); keep > 0 {
+		log.Info("purging finished jobs", "older_than", keep)
+		go (&scheduler.Purger{Store: st, Queue: q, Keep: keep, Logger: log.With("component", "purger")}).Run(ctx)
+	}
 	go srv.RunHub(ctx)
 
 	addr := config.String("HTTP_ADDR", "")
