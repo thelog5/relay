@@ -15,6 +15,9 @@
 #   loadtest/run.sh http://<ip>:8080 t3.small
 #   INSTANCE_ID=i-0abc123 KILL_TOKEN=secret loadtest/run.sh http://<ip>:8080 t3.small
 #
+# RATE should sit below the server's capacity (step 1 measures it), or step 2
+# measures queueing instead of latency. SKIP_THROUGHPUT=1 reruns steps 2-5.
+#
 # Run it from your laptop, not from the server under test, or k6 competes with
 # Relay for the same CPU.
 set -euo pipefail
@@ -33,9 +36,21 @@ echo "results -> $OUT"
 
 curl -sf "$URL/healthz" >/dev/null || { echo "no healthy Relay at $URL" >&2; exit 1; }
 
+# Each step needs an idle queue: a backlog left by the previous step would
+# inflate latency and hide the crash test's jobs behind thousands of others.
+wait_idle() {
+  local n=-1
+  for _ in $(seq 1 120); do
+    n=$(curl -sf "$URL/stats" | python3 -c 'import sys, json; s = json.load(sys.stdin)["statuses"]; print(s.get("queued", 0) + s.get("running", 0) + s.get("retry_scheduled", 0))' 2>/dev/null || echo -1)
+    [ "$n" = "0" ] && return 0
+    sleep 5
+  done
+  echo "warning: $n jobs still unfinished after 10 minutes" >&2
+}
+
 # ---- 4. container sampler, in the background during the ramp ---------------
 SAMPLER=""
-if [ -n "${INSTANCE_ID:-}" ] && command -v aws >/dev/null; then
+if [ -z "${SKIP_THROUGHPUT:-}" ] && [ -n "${INSTANCE_ID:-}" ] && command -v aws >/dev/null; then
   cat > "$OUT/.ssm-params.json" <<'JSON'
 {"commands": ["uptime", "docker stats --no-stream --format '{{.Name}}  cpu {{.CPUPerc}}  mem {{.MemUsage}}'"]}
 JSON
@@ -57,11 +72,14 @@ else
   echo "container sampling skipped (set INSTANCE_ID and install the aws CLI to enable)"
 fi
 
-# ---- 1. throughput ----------------------------------------------------------
-echo "== 1/5 throughput ramp up to ${MAX_RATE}/s"
-k6 run -q -e RELAY_URL="$URL" -e LABEL="$LABEL" -e MAX_RATE="$MAX_RATE" -e OUT_DIR="$OUT" \
-  loadtest/throughput.js 2>&1 | tee "$OUT/throughput.txt" || true
+# ---- 1. throughput (SKIP_THROUGHPUT=1 to rerun only the later steps) ----------
+if [ -z "${SKIP_THROUGHPUT:-}" ]; then
+  echo "== 1/5 throughput ramp up to ${MAX_RATE}/s"
+  k6 run -q -e RELAY_URL="$URL" -e LABEL="$LABEL" -e MAX_RATE="$MAX_RATE" -e OUT_DIR="$OUT" \
+    loadtest/throughput.js 2>&1 | tee "$OUT/throughput.txt" || true
+fi
 [ -n "$SAMPLER" ] && { kill "$SAMPLER" 2>/dev/null || true; wait "$SAMPLER" 2>/dev/null || true; }
+wait_idle
 
 # ---- 2. latency -------------------------------------------------------------
 echo "== 2/5 enqueue latency at ${RATE}/s"
@@ -78,6 +96,7 @@ prom_ms() {
 { echo "p50_ms $(prom_ms 0.5)"; echo "p95_ms $(prom_ms 0.95)"; echo "p99_ms $(prom_ms 0.99)"; } | tee "$OUT/server-latency.txt"
 
 # ---- 5. crash recovery ------------------------------------------------------
+wait_idle
 echo "== 5/5 crash recovery"
 go build -o bin/relayctl ./cmd/relayctl
 ./bin/relayctl crash -url "$URL" 2>&1 | tee "$OUT/crash.txt" || true
