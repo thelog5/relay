@@ -1,0 +1,10 @@
+
+== latency (t3.small) ==
+  rate                         300/s for 60s
+  requests                     17998
+  failure rate                 0.000%
+  p50 (ms)                     34.84
+  p95 (ms)                     60.42
+  p99 (ms)                     113.05
+  max (ms)                     396.94
+time="2026-11-11T05:38:19-05:00" level=error msg="thresholds on metrics 'http_req_duration{name:POST /jobs}' have been crossed"

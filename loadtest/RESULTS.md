@@ -4,6 +4,53 @@ The resume numbers belong to the deployed instance (see the README). The runs
 below are from a laptop and only show that the scripts work and roughly where
 Relay sits.
 
+## AWS: t3.small in us-east-2, Nov 11, 2026
+
+One t3.small (2 burstable vCPU, 2 GiB, Ubuntu) created by `infra/terraform`,
+running the same `docker compose` stack: Postgres, Redis, api, 3 workers × 8
+goroutines, Prometheus, Grafana. k6 ran on a laptop over the internet. Raw
+output: [`results/t3.small-20261111-053133`](results/t3.small-20261111-053133)
+(throughput, container CPU) and
+[`results/t3.small-20261111-053718`](results/t3.small-20261111-053718)
+(latency, crash recovery).
+
+### Throughput: ramp toward 6,000 req/s
+
+| Jobs sent and processed | Failed requests | Time to drain | Throughput |
+|------------------------:|----------------:|--------------:|-----------:|
+| 97,608 | 0 | 216 s | **452 jobs/s** end to end |
+
+No request failed: past capacity, `POST /jobs` slows down (p99 4.8 s at the
+top of the ramp) instead of erroring, and the backlog drains afterwards.
+
+### Where the CPU went (sampled over AWS SSM during the ramp)
+
+| Container | CPU (100% = one core) |
+|-----------|----------------------:|
+| postgres | 94–105% |
+| api | 34–36% |
+| redis | 23–28% |
+| each worker | 11–18% |
+
+Load average reached 32 on 2 vCPUs. Postgres is the limit: every job is four
+writes (insert plus three status changes, each with an event row).
+
+### Enqueue latency: steady 300 req/s for 60 s
+
+| | p50 | p95 | p99 |
+|---|---:|---:|---:|
+| Server-side (the api's own histogram, via Prometheus) | 5.9 ms | 24.6 ms | **77.5 ms** |
+| Client-side (k6 on the laptop, includes the internet) | 34.8 ms | 60.4 ms | 113.1 ms |
+
+300 req/s is about two-thirds of measured capacity. The same test at 1,000
+req/s (above capacity) measured queueing instead: p99 2.3 s, 0 errors.
+
+### Crash recovery and loss
+
+- `relayctl crash`: the killed worker held 8 jobs; the last finished on
+  another worker **7.28 s** after the kill (limit 15 s).
+- After all runs: 158,308 jobs succeeded, 0 dead, 0 unfinished.
+
 ## Local: MacBook Air, Docker in a 4-CPU / 6 GB Colima VM, Nov 7, 2026
 
 Everything (Postgres, Redis, api, 3 workers × 8 goroutines, Prometheus,

@@ -1,0 +1,12 @@
+time="2026-11-11T05:32:18-05:00" level=warning msg="Insufficient VUs, reached 3000 active VUs and cannot initialize more" executor=ramping-arrival-rate scenario=ramp
+time="2026-11-11T05:35:09-05:00" level=info msg="enqueue phase 144.0s, drained after 216.1s" source=console
+
+== throughput (t3.small) ==
+  requests sent                97686
+  failure rate                 0.00%
+  accepted/s (avg over run)    452
+  peak target rate             6000/s
+  jobs processed               97608
+  drained after (s)            216.1
+  processed/s (end to end)     452
+  POST /jobs p99 (ms)          4808.4

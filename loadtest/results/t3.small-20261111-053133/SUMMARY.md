@@ -1,0 +1,127 @@
+# Relay load test: t3.small
+
+Target: http://77.113.160.17:8080
+
+| Measure | Result |
+|---|---|
+| Jobs processed end to end | 97608 |
+| Throughput (processed/s, end to end) | 452 |
+| Drained after (s) | 216.1 |
+| Ramp failure rate | 0.00% |
+| Enqueue latency at 1000/s, client p50 / p95 / p99 (ms) | 1379.06 / 1671.10 / 2253.97 |
+| Enqueue latency, server-side p50 / p95 / p99 (ms, from histogram buckets) | 1711.27 / 2421.13 / 2484.23 |
+| Crash recovery | n/a |
+
+## Containers during the ramp
+
+```
+== 05:31:41
+ 10:31:37 up 4 min,  0 user,  load average: 2.38, 1.40, 0.58
+relay-grafana-1  cpu 0.20%  mem 287.2MiB / 1.861GiB
+relay-prometheus-1  cpu 0.09%  mem 17.44MiB / 1.861GiB
+relay-worker-2  cpu 11.57%  mem 10.43MiB / 1.861GiB
+relay-worker-3  cpu 11.04%  mem 9.43MiB / 1.861GiB
+relay-worker-1  cpu 12.50%  mem 10.36MiB / 1.861GiB
+relay-api-1  cpu 28.45%  mem 20.16MiB / 1.861GiB
+relay-postgres-1  cpu 58.09%  mem 154.5MiB / 1.861GiB
+relay-redis-1  cpu 19.25%  mem 6.203MiB / 1.861GiB
+
+== 05:31:58
+ 10:31:50 up 4 min,  0 user,  load average: 3.36, 1.63, 0.67
+relay-grafana-1  cpu 0.16%  mem 287.7MiB / 1.861GiB
+relay-prometheus-1  cpu 0.21%  mem 17.79MiB / 1.861GiB
+relay-worker-2  cpu 12.94%  mem 10.62MiB / 1.861GiB
+relay-worker-3  cpu 12.44%  mem 9.961MiB / 1.861GiB
+relay-worker-1  cpu 13.23%  mem 9.988MiB / 1.861GiB
+relay-api-1  cpu 35.01%  mem 23.78MiB / 1.861GiB
+relay-postgres-1  cpu 93.54%  mem 164.7MiB / 1.861GiB
+relay-redis-1  cpu 21.82%  mem 6.715MiB / 1.861GiB
+
+== 05:32:14
+ 10:32:06 up 4 min,  0 user,  load average: 11.63, 3.64, 1.35
+relay-grafana-1  cpu 0.11%  mem 287.8MiB / 1.861GiB
+relay-prometheus-1  cpu 0.00%  mem 17.93MiB / 1.861GiB
+relay-worker-2  cpu 11.84%  mem 10.04MiB / 1.861GiB
+relay-worker-3  cpu 11.43%  mem 9.883MiB / 1.861GiB
+relay-worker-1  cpu 11.83%  mem 10.77MiB / 1.861GiB
+relay-api-1  cpu 41.87%  mem 62.16MiB / 1.861GiB
+relay-postgres-1  cpu 91.48%  mem 175.7MiB / 1.861GiB
+relay-redis-1  cpu 23.86%  mem 7.305MiB / 1.861GiB
+
+== 05:32:30
+ 10:32:22 up 5 min,  0 user,  load average: 18.07, 5.46, 1.98
+relay-grafana-1  cpu 0.15%  mem 288.1MiB / 1.861GiB
+relay-prometheus-1  cpu 0.08%  mem 18.07MiB / 1.861GiB
+relay-worker-2  cpu 11.13%  mem 10.41MiB / 1.861GiB
+relay-worker-3  cpu 11.02%  mem 9.805MiB / 1.861GiB
+relay-worker-1  cpu 12.09%  mem 11.11MiB / 1.861GiB
+relay-api-1  cpu 38.18%  mem 152MiB / 1.861GiB
+relay-postgres-1  cpu 100.15%  mem 184.7MiB / 1.861GiB
+relay-redis-1  cpu 25.54%  mem 7.625MiB / 1.861GiB
+
+== 05:32:46
+ 10:32:38 up 5 min,  0 user,  load average: 21.80, 6.92, 2.52
+relay-grafana-1  cpu 0.49%  mem 287.6MiB / 1.861GiB
+relay-prometheus-1  cpu 0.09%  mem 18.17MiB / 1.861GiB
+relay-worker-2  cpu 11.76%  mem 12.92MiB / 1.861GiB
+relay-worker-3  cpu 12.55%  mem 11.25MiB / 1.861GiB
+relay-worker-1  cpu 11.08%  mem 10.61MiB / 1.861GiB
+relay-api-1  cpu 35.68%  mem 165MiB / 1.861GiB
+relay-postgres-1  cpu 93.20%  mem 194.4MiB / 1.861GiB
+relay-redis-1  cpu 22.86%  mem 8.023MiB / 1.861GiB
+
+== 05:33:03
+ 10:32:55 up 5 min,  0 user,  load average: 23.54, 8.05, 2.96
+relay-grafana-1  cpu 0.14%  mem 287.6MiB / 1.861GiB
+relay-prometheus-1  cpu 0.17%  mem 18.32MiB / 1.861GiB
+relay-worker-2  cpu 12.23%  mem 13.8MiB / 1.861GiB
+relay-worker-3  cpu 11.38%  mem 10.29MiB / 1.861GiB
+relay-worker-1  cpu 11.83%  mem 11.68MiB / 1.861GiB
+relay-api-1  cpu 35.49%  mem 168.8MiB / 1.861GiB
+relay-postgres-1  cpu 100.30%  mem 202.1MiB / 1.861GiB
+relay-redis-1  cpu 22.50%  mem 7.832MiB / 1.861GiB
+
+== 05:33:19
+ 10:33:11 up 5 min,  0 user,  load average: 28.17, 10.10, 3.75
+relay-grafana-1  cpu 0.17%  mem 287.4MiB / 1.861GiB
+relay-prometheus-1  cpu 0.00%  mem 18.69MiB / 1.861GiB
+relay-worker-2  cpu 11.66%  mem 11.69MiB / 1.861GiB
+relay-worker-3  cpu 11.56%  mem 11.04MiB / 1.861GiB
+relay-worker-1  cpu 11.80%  mem 10.71MiB / 1.861GiB
+relay-api-1  cpu 34.56%  mem 172.9MiB / 1.861GiB
+relay-postgres-1  cpu 93.69%  mem 216.2MiB / 1.861GiB
+relay-redis-1  cpu 24.64%  mem 8.215MiB / 1.861GiB
+
+== 05:33:36
+ 10:33:28 up 6 min,  0 user,  load average: 31.17, 11.65, 4.35
+relay-grafana-1  cpu 0.23%  mem 98.89MiB / 1.861GiB
+relay-prometheus-1  cpu 0.09%  mem 18.73MiB / 1.861GiB
+relay-worker-2  cpu 11.30%  mem 12.31MiB / 1.861GiB
+relay-worker-3  cpu 12.16%  mem 10.63MiB / 1.861GiB
+relay-worker-1  cpu 12.08%  mem 11.18MiB / 1.861GiB
+relay-api-1  cpu 35.37%  mem 173.5MiB / 1.861GiB
+relay-postgres-1  cpu 101.79%  mem 223.1MiB / 1.861GiB
+relay-redis-1  cpu 27.17%  mem 8.664MiB / 1.861GiB
+
+== 05:33:52
+ 10:33:44 up 6 min,  0 user,  load average: 32.28, 12.84, 4.86
+relay-grafana-1  cpu 0.12%  mem 98.9MiB / 1.861GiB
+relay-prometheus-1  cpu 0.09%  mem 18.79MiB / 1.861GiB
+relay-worker-2  cpu 12.01%  mem 11.47MiB / 1.861GiB
+relay-worker-3  cpu 11.57%  mem 10.46MiB / 1.861GiB
+relay-worker-1  cpu 11.37%  mem 11.8MiB / 1.861GiB
+relay-api-1  cpu 36.07%  mem 174.3MiB / 1.861GiB
+relay-postgres-1  cpu 93.81%  mem 227.7MiB / 1.861GiB
+relay-redis-1  cpu 22.63%  mem 9.266MiB / 1.861GiB
+
+== 05:34:08
+ 10:34:00 up 6 min,  0 user,  load average: 32.89, 13.97, 5.36
+relay-grafana-1  cpu 0.13%  mem 98.91MiB / 1.861GiB
+relay-prometheus-1  cpu 0.09%  mem 18.82MiB / 1.861GiB
+relay-worker-2  cpu 16.97%  mem 12.01MiB / 1.861GiB
+relay-worker-3  cpu 17.67%  mem 10.87MiB / 1.861GiB
+relay-worker-1  cpu 17.60%  mem 11.04MiB / 1.861GiB
+relay-api-1  cpu 9.94%  mem 174.8MiB / 1.861GiB
+relay-postgres-1  cpu 104.50%  mem 306.7MiB / 1.861GiB
+relay-redis-1  cpu 28.48%  mem 9.051MiB / 1.861GiB
+```

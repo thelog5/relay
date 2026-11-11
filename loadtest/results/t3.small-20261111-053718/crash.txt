@@ -1,0 +1,12 @@
+crash: killing 022134c06ea7-653e68 while it runs 8 jobs
+  025e4902 succeeded on 7db9c1a637c1-5bb5b2 after 7.04s
+  1b05d60c succeeded on 7db9c1a637c1-5bb5b2 after 7.07s
+  236535fc succeeded on 7db9c1a637c1-5bb5b2 after 7.1s
+  64511934 succeeded on 7db9c1a637c1-5bb5b2 after 7.14s
+  71e771b5 succeeded on 7db9c1a637c1-5bb5b2 after 7.17s
+  aa226a96 succeeded on 7db9c1a637c1-5bb5b2 after 7.21s
+  bbcfa142 succeeded on 7db9c1a637c1-5bb5b2 after 7.25s
+  d5393839 succeeded on 7db9c1a637c1-5bb5b2 after 7.28s
+
+crash result: 8 orphaned jobs, last finished 7.28s after the kill (limit 15s)
+PASS: every job held by the killed worker finished on another worker in time

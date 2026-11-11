@@ -119,14 +119,25 @@ cannot take the fleet down forever.
 
 ## Numbers
 
-| Metric | How measured | Result |
-|--------|--------------|--------|
-| Throughput (jobs/sec) | k6, `sleep` jobs at 0 ms, ramp until errors (`loadtest/throughput.js`) | **TODO** on the deployed instance · laptop: ≈1,508 jobs/s end to end |
-| p99 enqueue latency (ms) | k6 on `POST /jobs` (`loadtest/latency.js`) | **TODO** on the deployed instance · laptop: 39.9 ms at 1,000 req/s |
-| Time to recover a crashed job (s) | Crash test timestamps in `job_events` | **7.5s** kill → orphans finished (e2e test, PRD timers); ~6–7s reclaim gap in compose |
-| Jobs lost in crash tests | Count in `jobs` vs jobs sent | **0** of 2,000 (kill all 3 workers) and 0 of 300 (SIGKILL all, restart) |
+Measured on AWS with the Terraform in `infra/terraform`: one **t3.small**
+(2 burstable vCPU, 2 GiB) in us-east-2 running the same `docker compose`
+stack, with k6 on a laptop over the internet (`make load`). Full output is in
+[`loadtest/results/`](loadtest/results/) and [`loadtest/RESULTS.md`](loadtest/RESULTS.md).
 
-Instance type: **TODO** (fill in after `terraform apply`; numbers depend on hardware).
+| Metric | How measured | t3.small on AWS | Laptop (4-CPU VM) |
+|--------|--------------|-----------------|-------------------|
+| Throughput | k6 ramps `POST /jobs` (`sleep` 0 ms) until errors; jobs finished end to end | **452 jobs/s** (97,608 jobs, 0 failed requests) | ≈1,508 jobs/s |
+| p99 enqueue latency | `POST /jobs` at a steady rate below capacity; the api's own histogram, so no internet round trip | **77.5 ms** at 300 req/s (113 ms seen from the laptop) | 39.9 ms at 1,000 req/s |
+| Crash recovery | `relayctl crash`: kill a worker holding 8 jobs, time until the last one finishes elsewhere | **7.3 s** (limit 15 s) | 8.3 s; e2e test 7.5 s |
+| Jobs lost | Unfinished or missing jobs after every run | **0** of 158,308 | 0 of 223,199; 0 of 2,000 with all workers killed |
+
+**The bottleneck is Postgres.** During the ramp it held a full core (94–105%
+CPU) while the api used about 35%, each worker 12–18% and Redis about 25%.
+Every job costs four Postgres writes (the insert and three status changes,
+each with an event row), so batching the event inserts is the next lever,
+then a connection pooler and a bigger instance. Above about 450 jobs/s new
+jobs queue up rather than fail: a steady 1,000 req/s on this instance gave
+a p99 of 2.3 s with zero errors.
 
 Laptop runs (MacBook Air, Docker in a 4-CPU Colima VM, k6 on the same
 laptop) are in [`loadtest/RESULTS.md`](loadtest/RESULTS.md): 223,199 jobs
