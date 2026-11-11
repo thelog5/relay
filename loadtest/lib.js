@@ -4,6 +4,8 @@ import { sleep } from 'k6';
 
 export const BASE = (__ENV.RELAY_URL || 'http://localhost:8080').replace(/\/$/, '');
 export const LABEL = __ENV.LABEL || 'local';
+// run.sh points this at one folder per run so every artifact lands together.
+const OUT_DIR = (__ENV.OUT_DIR || 'loadtest/results').replace(/\/$/, '');
 
 export const jsonParams = (name) => ({
   headers: { 'Content-Type': 'application/json' },
@@ -48,6 +50,6 @@ export function writeSummary(data, name, extra) {
   ];
   return {
     stdout: lines.join('\n'),
-    [`loadtest/results/${name}-${LABEL}-${stamp}.json`]: JSON.stringify(out, null, 2),
+    [`${OUT_DIR}/${name}-${LABEL}-${stamp}.json`]: JSON.stringify(out, null, 2),
   };
 }

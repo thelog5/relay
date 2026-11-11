@@ -41,6 +41,10 @@ k6 run -e RELAY_URL=http://localhost:8080 -e LABEL=local -e MAX_RATE=4000 loadte
 k6 run -e RELAY_URL=http://localhost:8080 -e LABEL=local -e RATE=1000 loadtest/latency.js
 ```
 
-Against the deployed instance, run k6 from your laptop (not on the instance)
-with `make load URL=http://<ip>:8080 LABEL=<instance type>` and add a section
-above this one.
+Against the deployed instance, run from your laptop (not on the instance) the
+command that `terraform output load_test` prints, adding `KILL_TOKEN=<token>`
+if you set one. It runs the throughput ramp and the steady latency test, reads
+the api's own latency from Prometheus (no internet round trip), samples each
+container's CPU over AWS SSM during the ramp, and runs the crash-recovery
+check. Everything lands in `loadtest/results/<label>-<timestamp>/` with a
+`SUMMARY.md`; add a section above this one from it.

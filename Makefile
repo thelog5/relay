@@ -50,5 +50,5 @@ crash: build ## Acceptance: kill a worker mid-job, its jobs finish elsewhere wit
 chaos: build ## Acceptance: kill every worker, zero jobs lost
 	./bin/relayctl chaos -n 2000
 
-load: ## k6 throughput + latency against URL (default localhost), LABEL = instance type
+load: ## Throughput, latency (client + server), container CPU, crash recovery against URL; LABEL = instance type
 	loadtest/run.sh $(URL) $(LABEL)
