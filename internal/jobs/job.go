@@ -20,6 +20,9 @@ type Job struct {
 	WorkerID    string          `json:"worker_id,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
+	// PrevWorkerID is set by store.Transition: the worker that held the job
+	// before that transition. A reclaim names the crashed worker with it.
+	PrevWorkerID string `json:"-"`
 }
 
 // Event is one row of the job_events audit log (R7).

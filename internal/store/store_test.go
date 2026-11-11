@@ -164,12 +164,15 @@ func TestReclaimRecordsRunningToRunning(t *testing.T) {
 	if _, _, err := s.Transition(ctx, j.ID, TransitionOpts{From: running, To: jobs.StatusRunning, WorkerID: "dead-worker", IncAttempts: true}); err != nil {
 		t.Fatal(err)
 	}
-	_, prev, err := s.Transition(ctx, j.ID, TransitionOpts{From: running, To: jobs.StatusRunning, WorkerID: "live-worker", IncAttempts: true, Error: "reclaimed from dead-worker"})
+	got, prev, err := s.Transition(ctx, j.ID, TransitionOpts{From: running, To: jobs.StatusRunning, WorkerID: "live-worker", IncAttempts: true, Error: "reclaimed from dead-worker"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prev != jobs.StatusRunning {
 		t.Fatalf("prev status = %s", prev)
+	}
+	if got.PrevWorkerID != "dead-worker" || got.WorkerID != "live-worker" {
+		t.Fatalf("worker handover not reported: prev=%q now=%q", got.PrevWorkerID, got.WorkerID)
 	}
 	evs, _ := s.JobEvents(ctx, j.ID)
 	if last := evs[len(evs)-1]; last.Error != "reclaimed from dead-worker" || last.WorkerID != "live-worker" {

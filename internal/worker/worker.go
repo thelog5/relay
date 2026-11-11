@@ -445,11 +445,20 @@ func (w *Worker) process(ctx context.Context, m queue.Message, reclaimed bool) {
 	if prev == jobs.StatusRunning {
 		reclaimed = true
 	}
+	note := ""
 	if reclaimed {
 		metrics.JobsReclaimed.Inc()
 		_ = w.q.IncrWorkerStat(ctx, w.cfg.ID, queue.StatReclaimed, 1)
 	}
-	w.publish(ctx, job, prev, "")
+	if prev == jobs.StatusRunning {
+		// Same wording as the job_events row, so the live feed can say
+		// which worker the job was taken from.
+		note = "reclaimed from " + job.PrevWorkerID
+		if job.PrevWorkerID == "" {
+			note = "reclaimed from unknown worker"
+		}
+	}
+	w.publish(ctx, job, prev, note)
 
 	// A worker crashed during this job's final attempt: do not run it again.
 	// This also stops a job that kills its worker every time (a poison pill)

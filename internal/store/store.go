@@ -263,14 +263,14 @@ func (s *Store) Transition(ctx context.Context, id string, o TransitionOpts) (*j
 			       updated_at
 			FROM upd
 		)
-		SELECT `+jobColumns+`, prev_status FROM upd`,
+		SELECT `+jobColumns+`, prev_status, COALESCE(prev_worker, '') FROM upd`,
 		id, string(o.To), inc, o.WorkerID, o.Error, from, reset, o.OwnedBy)
 
 	var j jobs.Job
 	var status string
 	var payload []byte
 	err := row.Scan(&j.ID, &j.Type, &payload, &status, &j.Attempts, &j.MaxAttempts,
-		&j.LastError, &j.WorkerID, &j.CreatedAt, &j.UpdatedAt, &prev)
+		&j.LastError, &j.WorkerID, &j.CreatedAt, &j.UpdatedAt, &prev, &j.PrevWorkerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		cur, gerr := s.GetJob(ctx, id)
 		if gerr != nil {
