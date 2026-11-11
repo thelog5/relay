@@ -39,6 +39,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "the queue is full on this deployment; try again in a minute")
 		return
 	}
+	s.touch() // a new unfinished job ends idle mode (idle.go)
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 	var req CreateJobRequest
 	dec := json.NewDecoder(r.Body)
@@ -181,6 +182,7 @@ func (s *Server) handleRetryJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "job id must be a UUID")
 		return
 	}
+	s.touch() // a retried job is unfinished again (idle.go)
 	j, _, err := s.store.Transition(ctx, id, store.TransitionOpts{
 		From: []jobs.Status{jobs.StatusDead}, To: jobs.StatusQueued, WorkerID: "dashboard", ResetAttempts: true,
 	})

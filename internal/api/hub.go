@@ -111,14 +111,20 @@ func (h *Hub) Run(ctx context.Context) {
 				batch, dropped = nil, 0
 			}
 		case <-statsT.C:
+			if h.srv.Idle() {
+				continue
+			}
 			sctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			st, err := h.srv.Snapshot(sctx)
 			cancel()
 			if err != nil {
+				// Unknown state is not idle: keep checking.
+				h.srv.touch()
 				h.srv.log.Warn("stats snapshot failed", "err", err)
 				continue
 			}
 			if h.clientCount() > 0 {
+				h.srv.touch()
 				h.broadcast("stats", st)
 			}
 		}
@@ -138,6 +144,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
+	s.touch()
 	ch := s.hub.subscribe()
 	defer s.hub.unsubscribe(ch)
 

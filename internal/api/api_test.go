@@ -319,3 +319,40 @@ func TestEnqueueSurvivesClientCancellation(t *testing.T) {
 		t.Fatalf("job %s not on the stream: %+v", j.ID, d)
 	}
 }
+
+// IDLE_AFTER lets a serverless Postgres sleep: with nothing happening the api
+// stops its stats queries and the health check skips the database; a new job
+// wakes it, and it stays awake while that job is unfinished.
+func TestIdleModeLeavesPostgresAloneUntilThereIsWork(t *testing.T) {
+	e := newEnv(t, Config{IdleAfter: 150 * time.Millisecond})
+	if e.api.Idle() {
+		t.Fatal("idle right after start")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !e.api.Idle() {
+		t.Fatal("not idle after IdleAfter with nothing happening")
+	}
+	if code, body := e.do("GET", "/healthz", ""); code != 200 || body["postgres"] != "idle" {
+		t.Fatalf("idle health %d %v", code, body)
+	}
+	// No workers run here, so the job stays queued and the stats tick keeps
+	// seeing it.
+	if code, body := e.do("POST", "/jobs", `{"type":"sleep","payload":{"ms":5}}`); code != http.StatusAccepted {
+		t.Fatalf("create %d %v", code, body)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if e.api.Idle() {
+		t.Fatal("went idle with an unfinished job in Postgres")
+	}
+	if code, body := e.do("GET", "/healthz", ""); code != 200 || body["postgres"] != nil {
+		t.Fatalf("active health %d %v", code, body)
+	}
+}
+
+func TestIdleModeIsOffByDefault(t *testing.T) {
+	e := newEnv(t, Config{})
+	e.api.lastActive.Store(time.Now().Add(-time.Hour).UnixNano())
+	if e.api.Idle() {
+		t.Fatal("idle without IdleAfter")
+	}
+}

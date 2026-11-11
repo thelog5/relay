@@ -47,7 +47,11 @@ func (s *Server) Snapshot(ctx context.Context) (*Stats, error) {
 			alive++
 		}
 	}
-	s.unfinished.Store(counts[jobs.StatusQueued] + counts[jobs.StatusRunning] + counts[jobs.StatusRetryScheduled])
+	unfinished := counts[jobs.StatusQueued] + counts[jobs.StatusRunning] + counts[jobs.StatusRetryScheduled]
+	s.unfinished.Store(unfinished)
+	if unfinished > 0 {
+		s.touch() // not idle while there is work in flight (idle.go)
+	}
 	for status, n := range counts {
 		st.Total += n
 		metrics.JobsByStatus.WithLabelValues(string(status)).Set(float64(n))

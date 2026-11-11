@@ -31,7 +31,11 @@ type Config struct {
 	MaxBodyBytes int64
 	// Limits guard a public demo; the zero value applies none.
 	Limits Limits
-	Logger *slog.Logger
+	// IdleAfter, when positive, stops the api's periodic Postgres queries
+	// once nothing has happened for this long, so a serverless database can
+	// scale to zero (see idle.go). Zero keeps them always on.
+	IdleAfter time.Duration
+	Logger    *slog.Logger
 }
 
 // Server holds the API's dependencies.
@@ -48,6 +52,9 @@ type Server struct {
 	// unfinished is queued+running+retrying from the latest Snapshot, so
 	// the MaxUnfinished check costs nothing per request.
 	unfinished atomic.Int64
+	// lastActive is when something last happened, in Unix nanoseconds; see
+	// idle.go.
+	lastActive atomic.Int64
 }
 
 // New builds a Server. Call Handler for the http.Handler and RunHub to start
@@ -69,6 +76,7 @@ func New(cfg Config, st *store.Store, q *queue.Queue, reg jobs.Registry) *Server
 		jobLimit:  newRateLimiter(cfg.Limits.JobsPerMinute, cfg.Limits.JobsBurst),
 		killLimit: newRateLimiter(cfg.Limits.KillsPerMinute, cfg.Limits.KillsPerMinute)}
 	s.hub = NewHub(s)
+	s.touch()
 	return s
 }
 
@@ -146,12 +154,21 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if err := s.store.Ping(ctx); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "postgres: "+err.Error())
-		return
+	// A host's health checks are not activity: while idle, Postgres is left
+	// alone so a serverless database can sleep.
+	idle := s.Idle()
+	if !idle {
+		if err := s.store.Ping(ctx); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "postgres: "+err.Error())
+			return
+		}
 	}
 	if err := s.q.Client().Ping(ctx).Err(); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "redis: "+err.Error())
+		return
+	}
+	if idle {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "postgres": "idle"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
