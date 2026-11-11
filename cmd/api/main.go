@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,8 +53,15 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("consumer group: %w", err)
 	}
 
+	limits := demoLimits(config.Bool("DEMO_MODE", false))
+	if limits.Active() {
+		log.Info("public demo limits on", "jobs_per_min", limits.JobsPerMinute, "burst", limits.JobsBurst,
+			"kills_per_min", limits.KillsPerMinute, "max_unfinished", limits.MaxUnfinished,
+			"disabled_types", limits.DisabledTypes, "max_sleep_ms", limits.MaxSleepMS, "proxy_hops", limits.ProxyHops)
+	}
 	srv := api.New(api.Config{
 		KillToken: config.String("KILL_TOKEN", ""),
+		Limits:    limits,
 		Logger:    log,
 	}, st, q, jobs.DefaultRegistry())
 
@@ -73,7 +81,10 @@ func run(log *slog.Logger) error {
 	}).Run(ctx)
 	go srv.RunHub(ctx)
 
-	addr := config.String("HTTP_ADDR", ":8080")
+	addr := config.String("HTTP_ADDR", "")
+	if addr == "" {
+		addr = ":" + config.String("PORT", "8080") // PaaS hosts pass the port in PORT
+	}
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
@@ -92,4 +103,30 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return httpSrv.Shutdown(shutdownCtx)
+}
+
+// demoLimits returns the public-demo protections. DEMO_MODE=true turns on
+// sensible defaults; each RATE_LIMIT_* / MAX_* / DISABLED_JOB_TYPES /
+// TRUST_PROXY_HOPS variable overrides one of them either way.
+func demoLimits(demo bool) api.Limits {
+	var d api.Limits
+	disabled := ""
+	if demo {
+		d = api.Limits{JobsPerMinute: 1200, JobsBurst: 600, KillsPerMinute: 12, MaxUnfinished: 20000, MaxSleepMS: 10000}
+		disabled = "webhook"
+	}
+	l := api.Limits{
+		JobsPerMinute:  config.Int("RATE_LIMIT_JOBS_PER_MIN", d.JobsPerMinute),
+		JobsBurst:      config.Int("RATE_LIMIT_JOBS_BURST", d.JobsBurst),
+		KillsPerMinute: config.Int("RATE_LIMIT_KILLS_PER_MIN", d.KillsPerMinute),
+		MaxUnfinished:  int64(config.Int("MAX_UNFINISHED_JOBS", int(d.MaxUnfinished))),
+		MaxSleepMS:     config.Int("MAX_SLEEP_MS", d.MaxSleepMS),
+		ProxyHops:      config.Int("TRUST_PROXY_HOPS", 0),
+	}
+	for _, t := range strings.Split(config.String("DISABLED_JOB_TYPES", disabled), ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			l.DisabledTypes = append(l.DisabledTypes, t)
+		}
+	}
+	return l
 }

@@ -543,6 +543,7 @@
       } else {
         $("wNote").textContent = res.status === 403 ? "The kill token was wrong. Try again with the value of KILL_TOKEN."
           : res.status === 404 ? `Worker ${id} did not receive the kill. It may have already stopped.`
+          : res.status === 429 ? "Kill limit reached for your address. Try again in a few seconds."
           : `Kill failed with HTTP ${res.status}.`;
       }
     } catch {
@@ -639,13 +640,17 @@
     if (btn) btn.disabled = true;
     $("sendNote").textContent = `Sending ${fmt(n)}`;
     const t0 = performance.now();
-    let ok = 0;
+    let ok = 0, limited = 0, full = 0;
     for (let i = 0; i < n; i += 25) {
       await Promise.all(Array.from({ length: Math.min(25, n - i) }, () =>
-        fetch("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then((r) => { if (r.ok) ok++; }).catch(() => {})));
+        fetch("/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body })
+          .then((r) => { if (r.ok) ok++; else if (r.status === 429) limited++; else if (r.status === 503) full++; }).catch(() => {})));
     }
     const ms = Math.round(performance.now() - t0);
-    $("sendNote").textContent = ok === n ? `${fmt(n)} accepted in ${fmt(ms)} ms` : `${fmt(ok)} of ${fmt(n)} accepted`;
+    $("sendNote").textContent = ok === n ? `${fmt(n)} accepted in ${fmt(ms)} ms`
+      : limited ? `${fmt(ok)} of ${fmt(n)} accepted. Rate limit reached, try again shortly.`
+      : full ? `${fmt(ok)} of ${fmt(n)} accepted. The queue is full, try again in a minute.`
+      : `${fmt(ok)} of ${fmt(n)} accepted`;
     if (btn) btn.disabled = false;
   }
   $("send").addEventListener("click", (e) => {

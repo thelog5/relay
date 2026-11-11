@@ -31,6 +31,14 @@ type CreateJobResponse struct {
 }
 
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
+	if limited(w, s.jobLimit, clientIP(r, s.cfg.Limits.ProxyHops), "jobs") {
+		return
+	}
+	if max := s.cfg.Limits.MaxUnfinished; max > 0 && s.unfinished.Load() >= max {
+		w.Header().Set("Retry-After", "30")
+		writeError(w, http.StatusServiceUnavailable, "the queue is full on this deployment; try again in a minute")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
 	var req CreateJobRequest
 	dec := json.NewDecoder(r.Body)
@@ -39,7 +47,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	j, err := s.Enqueue(r, req)
+	err := s.cfg.Limits.checkJob(req)
+	var j *jobs.Job
+	if err == nil {
+		j, err = s.Enqueue(r, req)
+	}
 	if err != nil {
 		var ve validationError
 		if errors.As(err, &ve) {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/thelog5/relay/internal/jobs"
@@ -27,7 +28,9 @@ type Config struct {
 	WorkerRecent time.Duration
 	// MaxBodyBytes caps POST /jobs bodies.
 	MaxBodyBytes int64
-	Logger       *slog.Logger
+	// Limits guard a public demo; the zero value applies none.
+	Limits Limits
+	Logger *slog.Logger
 }
 
 // Server holds the API's dependencies.
@@ -38,6 +41,12 @@ type Server struct {
 	reg   jobs.Registry
 	log   *slog.Logger
 	hub   *Hub
+
+	jobLimit  *rateLimiter
+	killLimit *rateLimiter
+	// unfinished is queued+running+retrying from the latest Snapshot, so
+	// the MaxUnfinished check costs nothing per request.
+	unfinished atomic.Int64
 }
 
 // New builds a Server. Call Handler for the http.Handler and RunHub to start
@@ -55,7 +64,9 @@ func New(cfg Config, st *store.Store, q *queue.Queue, reg jobs.Registry) *Server
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, store: st, q: q, reg: reg, log: cfg.Logger}
+	s := &Server{cfg: cfg, store: st, q: q, reg: reg, log: cfg.Logger,
+		jobLimit:  newRateLimiter(cfg.Limits.JobsPerMinute, cfg.Limits.JobsBurst),
+		killLimit: newRateLimiter(cfg.Limits.KillsPerMinute, cfg.Limits.KillsPerMinute)}
 	s.hub = NewHub(s)
 	return s
 }

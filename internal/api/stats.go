@@ -47,6 +47,7 @@ func (s *Server) Snapshot(ctx context.Context) (*Stats, error) {
 			alive++
 		}
 	}
+	s.unfinished.Store(counts[jobs.StatusQueued] + counts[jobs.StatusRunning] + counts[jobs.StatusRetryScheduled])
 	for status, n := range counts {
 		st.Total += n
 		metrics.JobsByStatus.WithLabelValues(string(status)).Set(float64(n))
@@ -72,6 +73,9 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleKillWorker(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.KillToken != "" && r.URL.Query().Get("token") != s.cfg.KillToken {
 		writeError(w, http.StatusForbidden, "kill requires ?token=")
+		return
+	}
+	if limited(w, s.killLimit, clientIP(r, s.cfg.Limits.ProxyHops), "kills") {
 		return
 	}
 	id := r.PathValue("id")
