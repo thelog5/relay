@@ -4,8 +4,7 @@
 
 ![Relay dashboard: a worker is killed mid-job and the others pick up its jobs](docs/demo.gif)
 
-**[Open it at https://relayqueue.onrender.com/]([https://relayqueue.onrender.com])** · **Or run it with `docker compose up`** · Built by [Logan Li](https://www.linkedin.com/in/logan-li-9089b7216/)
-
+**[Open it at relayqueue.onrender.com](https://relayqueue.onrender.com/)** · **Or run it with `docker compose up`** · Built by [Logan Li](https://www.linkedin.com/in/logan-li-9089b7216/)
 ## What it is
 
 Apps hand slow work to a job queue so users don't wait for it: sending an
