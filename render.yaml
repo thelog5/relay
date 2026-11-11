@@ -1,20 +1,23 @@
 # Render Blueprint for the public Relay demo. In the Render dashboard choose
-# New > Blueprint, connect this repo, and apply. Everything is on the free plan:
+# New > Blueprint, connect this repo, and apply. About $13 a month:
 #
-#   relay     web service: the api plus 3 supervised worker processes
-#             (cmd/allinone), so the dashboard's kill button still kills a
-#             real process and a replacement starts a second later
-#   relay-kv  Key Value (Valkey 8, Redis-compatible) for streams and pub/sub;
-#             free instances are in-memory only, and the reconciler re-queues
-#             unfinished jobs from Postgres if it restarts
-#   relay-db  Postgres 16; free databases expire 30 days after creation
+#   relayqueue  web service, Starter ($7): the api plus 3 supervised worker
+#               processes (cmd/allinone), so the dashboard's kill button still
+#               kills a real process and a replacement starts a second later.
+#               Paid instances never sleep.
+#   relay-kv    Key Value (Valkey 8, Redis-compatible), free: in-memory only,
+#               and the reconciler re-queues unfinished jobs from Postgres if
+#               it restarts. Finished jobs are deleted from the stream, so the
+#               25 MB limit holds well past the demo's 20,000-job queue cap.
+#   relay-db    Postgres 16, Basic-256mb ($6): no 30-day expiry, point-in-time
+#               recovery
 #
-# Details and free-tier caveats: infra/render/README.md
+# Details, custom domain and upgrades: infra/render/README.md
 services:
   - type: web
-    name: relay
+    name: relayqueue
     runtime: docker
-    plan: free
+    plan: starter
     dockerfilePath: ./Dockerfile
     dockerCommand: allinone
     healthCheckPath: /healthz
@@ -39,8 +42,8 @@ services:
         value: "3"
       - key: WORKER_CONCURRENCY
         value: "4"
-      # Small pools: four processes share one free database and one free
-      # Key Value instance.
+      # Small pools: four processes share one database and one Key Value
+      # instance (Basic-256mb allows 100 connections; free Key Value 50).
       - key: PG_MAX_CONNS
         value: "8"
       - key: REDIS_POOL_SIZE
@@ -59,7 +62,7 @@ services:
 
 databases:
   - name: relay-db
-    plan: free
+    plan: basic-256mb
     databaseName: relay
     user: relay
     postgresMajorVersion: "16"
