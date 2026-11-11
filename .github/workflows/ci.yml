@@ -4,6 +4,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch: # "Run workflow" button in the Actions tab
 
 permissions:
   contents: read
