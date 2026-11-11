@@ -138,8 +138,8 @@ Render
 
 Complete and load-tested on AWS; the EC2 instance was deleted after the run
 and `terraform apply` brings it back in a few minutes. The public demo runs
-on Render from [`render.yaml`](render.yaml) for about $13 a month
-([guide](infra/render/README.md)).
+on Render with Postgres on Neon's free plan, for about $7 a month
+([`render.yaml`](render.yaml), [guide](infra/render/README.md)).
 
 ## Run it locally
 
@@ -284,6 +284,7 @@ to `dead` rather than running again.
 | `MAX_UNFINISHED_JOBS` / `MAX_SLEEP_MS` / `DISABLED_JOB_TYPES` | off (demo: 20,000 / 10,000 / `webhook`) | api |
 | `TRUST_PROXY_HOPS` | `0`; `1` behind a platform proxy such as Render's | api |
 | `RETENTION` | off (demo: `6h`); purges finished jobs older than this | api |
+| `IDLE_AFTER` | off; after this long with no dashboard open and no unfinished jobs, stop querying Postgres so a serverless one (Neon) can scale to zero | api |
 | `WORKERS` | `3` worker processes | allinone |
 | `WORKER_REDIS_POOL_SIZE` | concurrency × 2 + 10 | worker |
 
@@ -309,9 +310,10 @@ to `dead` rather than running again.
 **Public demo on Render.** [`render.yaml`](render.yaml) is a Render
 Blueprint: New > Blueprint, pick this repo, apply. It runs `allinone` (the
 api plus three supervised worker processes in one container) on a Starter
-web service, with Basic-256mb Postgres, free Key Value and the public-demo
-limits on. Steps, costs and the custom domain setup are in
-[infra/render/README.md](infra/render/README.md).
+web service, with free Key Value, Postgres on Neon's free plan and the
+public-demo limits on. `IDLE_AFTER` stops the api querying Postgres when
+nothing is happening, so Neon can scale to zero between visitors. Steps,
+costs and the Neon setup are in [infra/render/README.md](infra/render/README.md).
 
 **AWS EC2 for load tests.** Terraform puts the whole compose stack on one EC2
 instance, reachable only from your IP:
