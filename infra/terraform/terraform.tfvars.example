@@ -1,6 +1,17 @@
-# cp terraform.tfvars.example terraform.tfvars, then edit.
+# cp terraform.tfvars.example terraform.tfvars, then edit. terraform.tfvars is
+# gitignored; never commit it.
 region        = "us-east-1"
 instance_type = "t3.small"
-admin_cidr    = "203.0.113.7/32" # your IP: curl -s https://checkip.amazonaws.com
-kill_token    = "change-me"
+
+# Your laptop's public IP: curl -s https://checkip.amazonaws.com
+# Only this address can reach Grafana, Prometheus and SSH.
+admin_cidr = "203.0.113.7/32"
+
+# false: the dashboard is reachable from admin_cidr only, which is all a
+# load-test run needs. true: anyone on the internet can open it.
+public_dashboard = false
+
+# Required by the dashboard's kill button and relayctl crash. Pick anything.
+kill_token = "change-me"
+
 # ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
